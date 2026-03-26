@@ -88,7 +88,10 @@ internal partial class MainWindowViewModel : ObservableObject
     private string _logText = string.Empty;
 
     [ObservableProperty]
-    private bool _isDarkTheme;
+    private bool _isDarkTheme = true;
+
+    [ObservableProperty]
+    private SymbolRegular _themeIcon = SymbolRegular.WeatherSunny20;
 
     [ObservableProperty]
     private bool _isStateOn;
@@ -129,6 +132,7 @@ internal partial class MainWindowViewModel : ObservableObject
     {
         IsDarkTheme = !IsDarkTheme;
         ApplicationThemeManager.Apply(IsDarkTheme ? ApplicationTheme.Dark : ApplicationTheme.Light);
+        ThemeIcon = IsDarkTheme ? SymbolRegular.WeatherSunny20 : SymbolRegular.WeatherMoon20;
     }
 
     partial void OnIsAutoRefreshEnabledChanged(bool value)

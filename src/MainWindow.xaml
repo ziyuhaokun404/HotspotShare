@@ -51,7 +51,7 @@
                         <ui:Button.Content>
                             <ui:SymbolIcon FontSize="16"
                                            Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType={x:Type ui:Button}}}"
-                                           Symbol="WeatherMoon20" />
+                                           Symbol="{Binding ThemeIcon}" />
                         </ui:Button.Content>
                     </ui:Button>
                 </StackPanel>
