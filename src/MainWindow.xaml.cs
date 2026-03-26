@@ -23,10 +23,15 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     private PendingPrivilegedAction? _pendingPrivilegedAction = PendingPrivilegedAction.TryLoadFromCommandLine(Environment.GetCommandLineArgs().Skip(1));
     private bool _pendingPrivilegedActionHandled;
 
+    private static readonly string[] BandOptions = ["自动", "2.4 GHz", "5 GHz"];
+    private static readonly string[] BandValues = ["Auto", "TwoPointFourGigahertz", "FiveGigahertz"];
+
     public MainWindow()
     {
         InitializeComponent();
         SourceProfileComboBox.ItemsSource = _profiles;
+        BandComboBox.ItemsSource = BandOptions;
+        BandComboBox.SelectedIndex = 0;
     }
 
     private async void Window_Loaded(object sender, RoutedEventArgs e)
@@ -59,6 +64,12 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         await RefreshStatusAsync(selectedProfile.AdapterId, syncInputFields: true, announceProgress: true);
     }
 
+    private string GetSelectedBand()
+    {
+        var index = BandComboBox.SelectedIndex;
+        return index >= 0 && index < BandValues.Length ? BandValues[index] : "Auto";
+    }
+
     private async void StartSharingButton_Click(object sender, RoutedEventArgs e)
     {
         var selectedProfile = GetSelectedProfile();
@@ -70,6 +81,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
 
         var ssid = SsidTextBox.Text.Trim();
         var passphrase = PassphraseBox.Password.Trim();
+        var band = GetSelectedBand();
         if (!ValidateInputs(ssid, passphrase))
         {
             return;
@@ -77,21 +89,21 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
 
         if (!EnsureAdministratorForPrivilegedAction(
                 "启动热点共享",
-                PendingPrivilegedAction.CreateStart(selectedProfile.AdapterId, ssid, passphrase)))
+                PendingPrivilegedAction.CreateStart(selectedProfile.AdapterId, ssid, passphrase, band)))
         {
             return;
         }
 
-        await StartSharingAsync(selectedProfile, ssid, passphrase);
+        await StartSharingAsync(selectedProfile, ssid, passphrase, band);
     }
 
-    private async Task StartSharingAsync(TetheringConnectionProfile selectedProfile, string ssid, string passphrase)
+    private async Task StartSharingAsync(TetheringConnectionProfile selectedProfile, string ssid, string passphrase, string band)
     {
         try
         {
             SetBusy(true, "正在启动 Windows 移动热点并共享所选连接...");
 
-            var result = await _tetheringService.StartHotspotAsync(selectedProfile.AdapterId, ssid, passphrase);
+            var result = await _tetheringService.StartHotspotAsync(selectedProfile.AdapterId, ssid, passphrase, band);
             ApplyResult(result);
 
             if (result.Success)
@@ -425,16 +437,26 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                 PassphraseBox.Password = pendingAction.Passphrase;
             }
 
+            if (!string.IsNullOrWhiteSpace(pendingAction.Band))
+            {
+                var bandIndex = Array.IndexOf(BandValues, pendingAction.Band);
+                if (bandIndex >= 0)
+                {
+                    BandComboBox.SelectedIndex = bandIndex;
+                }
+            }
+
             EnsureDefaultInputs();
 
             var ssid = SsidTextBox.Text.Trim();
             var passphrase = PassphraseBox.Password.Trim();
+            var band = GetSelectedBand();
             if (!ValidateInputs(ssid, passphrase))
             {
                 return;
             }
 
-            await StartSharingAsync(selectedProfile, ssid, passphrase);
+            await StartSharingAsync(selectedProfile, ssid, passphrase, band);
             return;
         }
 
@@ -683,16 +705,19 @@ internal sealed class PendingPrivilegedAction
 
     public string? Passphrase { get; init; }
 
+    public string? Band { get; init; }
+
     public string ActionName => Kind == PendingPrivilegedActionKind.Start ? "启动热点共享" : "停止热点共享";
 
-    public static PendingPrivilegedAction CreateStart(string adapterId, string ssid, string passphrase)
+    public static PendingPrivilegedAction CreateStart(string adapterId, string ssid, string passphrase, string band)
     {
         return new PendingPrivilegedAction
         {
             Kind = PendingPrivilegedActionKind.Start,
             AdapterId = adapterId,
             Ssid = ssid,
-            Passphrase = passphrase
+            Passphrase = passphrase,
+            Band = band
         };
     }
 

@@ -192,6 +192,13 @@
 
                             <TextBlock Margin="0,22,0,0"
                                        Style="{StaticResource FieldLabelTextBlockStyle}"
+                                       Text="Wi-Fi 频段" />
+                            <ComboBox x:Name="BandComboBox"
+                                      Margin="0,8,0,0"
+                                      MinHeight="42" />
+
+                            <TextBlock Margin="0,22,0,0"
+                                       Style="{StaticResource FieldLabelTextBlockStyle}"
                                        Text="热点密码" />
                             <ui:PasswordBox x:Name="PassphraseBox"
                                             Margin="0,8,0,0"

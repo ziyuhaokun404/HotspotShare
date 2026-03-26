@@ -158,7 +158,7 @@ function New-Status {
         return response.Data;
     }
 
-    public async Task<TetheringActionResult> StartHotspotAsync(string adapterId, string ssid, string passphrase, CancellationToken cancellationToken = default)
+    public async Task<TetheringActionResult> StartHotspotAsync(string adapterId, string ssid, string passphrase, string band = "Auto", CancellationToken cancellationToken = default)
     {
         var response = await ExecuteAsync<TetheringStatus>(
             BuildStartScript(),
@@ -166,7 +166,8 @@ function New-Status {
             {
                 ["HOTSPOT_ADAPTER_ID"] = adapterId,
                 ["HOTSPOT_SSID"] = ssid,
-                ["HOTSPOT_PASSPHRASE"] = passphrase
+                ["HOTSPOT_PASSPHRASE"] = passphrase,
+                ["HOTSPOT_BAND"] = band
             },
             cancellationToken);
 
@@ -346,6 +347,7 @@ try {
     $adapterId = $env:HOTSPOT_ADAPTER_ID
     $ssid = $env:HOTSPOT_SSID
     $passphrase = $env:HOTSPOT_PASSPHRASE
+    $band = $env:HOTSPOT_BAND
 
     if ([string]::IsNullOrWhiteSpace($ssid)) {
         throw '热点名称不能为空。'
@@ -362,6 +364,12 @@ try {
     $config = [System.Activator]::CreateInstance($configType)
     $config.Ssid = $ssid
     $config.Passphrase = $passphrase
+
+    if (-not [string]::IsNullOrWhiteSpace($band) -and $band -ne 'Auto') {
+        $bandEnum = [Windows.Networking.NetworkOperators.TetheringWiFiBand, Windows, ContentType=WindowsRuntime]
+        $config.Band = [Enum]::Parse($bandEnum, $band)
+    }
+
     Await-AsyncAction ($manager.ConfigureAccessPointAsync($config))
 
     $resultType = [Windows.Networking.NetworkOperators.NetworkOperatorTetheringOperationResult, Windows, ContentType=WindowsRuntime]
