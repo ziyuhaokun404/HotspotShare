@@ -25,6 +25,11 @@
     <ui:FluentWindow.Resources>
         <converters:InverseBooleanConverter x:Key="InverseBooleanConverter" />
         <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
+
+        <Style BasedOn="{StaticResource {x:Type ui:TitleBarButton}}" TargetType="{x:Type ui:TitleBarButton}">
+            <Setter Property="Width" Value="40" />
+            <Setter Property="Height" Value="40" />
+        </Style>
     </ui:FluentWindow.Resources>
     <Grid>
         <Grid.RowDefinitions>
