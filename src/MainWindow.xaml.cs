@@ -8,10 +8,10 @@ using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
-using MetaHotspotShare.Models;
-using MetaHotspotShare.Services;
+using HotspotShare.Models;
+using HotspotShare.Services;
 
-namespace MetaHotspotShare;
+namespace HotspotShare;
 
 public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
 {
@@ -185,8 +185,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                 ? GetSelectedProfile()?.AdapterId ?? _activeAdapterId
                 : _pendingPrivilegedAction?.AdapterId;
             var profiles = (await _tetheringService.GetProfilesAsync())
-                .OrderByDescending(profile => profile.IsMetaSuggested)
-                .ThenByDescending(profile => profile.IsInternetProfile)
+                .OrderByDescending(profile => profile.IsInternetProfile)
                 .ThenBy(profile => profile.Name, StringComparer.CurrentCultureIgnoreCase)
                 .ToList();
 
@@ -196,7 +195,6 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             SourceProfileComboBox.Items.Refresh();
             SourceProfileComboBox.SelectedItem =
                 _profiles.FirstOrDefault(profile => profile.AdapterId.Equals(previousAdapterId, StringComparison.OrdinalIgnoreCase)) ??
-                _profiles.FirstOrDefault(profile => profile.IsMetaSuggested) ??
                 _profiles.FirstOrDefault();
         }
         catch (Exception ex)
@@ -519,7 +517,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             return currentProcessPath;
         }
 
-        var candidate = Path.Combine(AppContext.BaseDirectory, "MetaHotspotShare.exe");
+        var candidate = Path.Combine(AppContext.BaseDirectory, "HotspotShare.exe");
         if (File.Exists(candidate))
         {
             return candidate;
@@ -564,10 +562,6 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         }
 
         var flags = new List<string>();
-        if (profile.IsMetaSuggested)
-        {
-            flags.Add("已识别为 Meta 连接");
-        }
 
         if (profile.IsInternetProfile)
         {
@@ -646,7 +640,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             machineName = "Host";
         }
 
-        var ssid = $"Meta-{machineName}";
+        var ssid = $"Hotspot-{machineName}";
         return ssid.Length <= 32 ? ssid : ssid[..32];
     }
 
@@ -715,7 +709,7 @@ internal sealed class PendingPrivilegedAction
     {
         var directory = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "MetaHotspotShare",
+            "HotspotShare",
             "pending");
 
         Directory.CreateDirectory(directory);

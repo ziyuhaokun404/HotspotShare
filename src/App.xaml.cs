@@ -4,7 +4,7 @@ using System.Windows.Threading;
 using System.Windows;
 using Wpf.Ui.Appearance;
 
-namespace MetaHotspotShare;
+namespace HotspotShare;
 
 public partial class App : Application
 {
@@ -23,7 +23,7 @@ public partial class App : Application
         WriteExceptionLog("DispatcherUnhandledException", e.Exception);
         MessageBox.Show(
             $"程序发生未处理异常：{e.Exception.Message}{Environment.NewLine}{Environment.NewLine}日志位置：{GetLogPath()}",
-            "MetaHotspotShare",
+            "HotspotShare",
             MessageBoxButton.OK,
             MessageBoxImage.Error);
         e.Handled = true;
@@ -67,7 +67,7 @@ public partial class App : Application
     {
         return Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "MetaHotspotShare",
+            "HotspotShare",
             "logs",
             "app.log");
     }

@@ -1,4 +1,4 @@
-namespace MetaHotspotShare.Models;
+namespace HotspotShare.Models;
 
 internal sealed class TetheringConnectionProfile
 {
@@ -9,8 +9,6 @@ internal sealed class TetheringConnectionProfile
     public string ConnectivityLevel { get; set; } = string.Empty;
 
     public bool IsInternetProfile { get; set; }
-
-    public bool IsMetaSuggested { get; set; }
 
     public string DisplayName => IsInternetProfile ? $"{Name}  当前系统上网连接" : Name;
 }

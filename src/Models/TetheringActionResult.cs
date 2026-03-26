@@ -1,4 +1,4 @@
-namespace MetaHotspotShare.Models;
+namespace HotspotShare.Models;
 
 internal sealed class TetheringActionResult
 {

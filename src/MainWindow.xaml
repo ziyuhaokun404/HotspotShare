@@ -1,11 +1,11 @@
-<ui:FluentWindow x:Class="MetaHotspotShare.MainWindow"
+<ui:FluentWindow x:Class="HotspotShare.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
         mc:Ignorable="d"
-        Title="Meta 网卡热点共享"
+        Title="HotspotShare"
         Width="1180"
         Height="820"
         MinWidth="980"
@@ -27,7 +27,7 @@
         </Grid.RowDefinitions>
 
         <ui:TitleBar Grid.Row="0"
-                     Title="Meta 网卡热点共享" />
+                     Title="HotspotShare" />
 
         <ui:DynamicScrollViewer Grid.Row="1"
                       Padding="24,16,24,16"
@@ -60,10 +60,10 @@
                                 <StackPanel Margin="18,0,0,0">
                                     <TextBlock FontSize="32"
                                                FontWeight="SemiBold"
-                                               Text="通过 Meta 网卡共享网络" />
+                                               Text="Windows 移动热点共享" />
                                     <TextBlock Margin="0,8,0,0"
                                                Style="{StaticResource BodySecondaryTextBlockStyle}"
-                                               Text="使用 WPF UI Fluent 设计体系，Mica 背景、圆角卡片与系统主题资源。" />
+                                               Text="选择网络连接，一键创建 Wi-Fi 热点并共享给其他设备。" />
                                 </StackPanel>
                             </StackPanel>
 
@@ -187,7 +187,7 @@
                                         MinHeight="42"
                                         MaxLength="32"
                                         ClearButtonEnabled="True"
-                                        PlaceholderText="例如 Meta-Desk"
+                                        PlaceholderText="例如 MyHotspot"
                                         Icon="{ui:SymbolIcon Wifi324}" />
 
                             <TextBlock Margin="0,22,0,0"

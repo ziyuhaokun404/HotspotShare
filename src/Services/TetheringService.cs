@@ -1,9 +1,9 @@
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
-using MetaHotspotShare.Models;
+using HotspotShare.Models;
 
-namespace MetaHotspotShare.Services;
+namespace HotspotShare.Services;
 
 internal sealed class TetheringService
 {
@@ -147,7 +147,7 @@ function New-Status {
     {
         var response = await ExecuteAsync<TetheringStatus>(
             BuildStatusScript(),
-            new Dictionary<string, string?> { ["METAHOTSPOT_ADAPTER_ID"] = adapterId },
+            new Dictionary<string, string?> { ["HOTSPOT_ADAPTER_ID"] = adapterId },
             cancellationToken);
 
         if (!response.Success || response.Data is null)
@@ -164,9 +164,9 @@ function New-Status {
             BuildStartScript(),
             new Dictionary<string, string?>
             {
-                ["METAHOTSPOT_ADAPTER_ID"] = adapterId,
-                ["METAHOTSPOT_SSID"] = ssid,
-                ["METAHOTSPOT_PASSPHRASE"] = passphrase
+                ["HOTSPOT_ADAPTER_ID"] = adapterId,
+                ["HOTSPOT_SSID"] = ssid,
+                ["HOTSPOT_PASSPHRASE"] = passphrase
             },
             cancellationToken);
 
@@ -182,7 +182,7 @@ function New-Status {
     {
         var response = await ExecuteAsync<TetheringStatus>(
             BuildStopScript(),
-            new Dictionary<string, string?> { ["METAHOTSPOT_ADAPTER_ID"] = adapterId },
+            new Dictionary<string, string?> { ["HOTSPOT_ADAPTER_ID"] = adapterId },
             cancellationToken);
 
         return new TetheringActionResult
@@ -291,7 +291,6 @@ try {
             AdapterId = $adapterId
             ConnectivityLevel = $internet.GetNetworkConnectivityLevel().ToString()
             IsInternetProfile = $true
-            IsMetaSuggested = ([string]::Concat($internet.ProfileName) -match 'Meta')
         })
     }
 
@@ -311,7 +310,6 @@ try {
             AdapterId = $adapterId
             ConnectivityLevel = $profile.GetNetworkConnectivityLevel().ToString()
             IsInternetProfile = $false
-            IsMetaSuggested = ([string]::Concat($profile.ProfileName) -match 'Meta')
         })
     }
 
@@ -329,7 +327,7 @@ catch {
         return CommonScript + """
 
 try {
-    $payload = Get-TetheringManager $env:METAHOTSPOT_ADAPTER_ID
+    $payload = Get-TetheringManager $env:HOTSPOT_ADAPTER_ID
     $status = New-Status $payload.Profile $payload.Manager
     New-Response $true '已读取热点状态。' $status | ConvertTo-Json -Depth 6 -Compress
 }
@@ -345,9 +343,9 @@ catch {
         return CommonScript + """
 
 try {
-    $adapterId = $env:METAHOTSPOT_ADAPTER_ID
-    $ssid = $env:METAHOTSPOT_SSID
-    $passphrase = $env:METAHOTSPOT_PASSPHRASE
+    $adapterId = $env:HOTSPOT_ADAPTER_ID
+    $ssid = $env:HOTSPOT_SSID
+    $passphrase = $env:HOTSPOT_PASSPHRASE
 
     if ([string]::IsNullOrWhiteSpace($ssid)) {
         throw '热点名称不能为空。'
@@ -398,7 +396,7 @@ catch {
         return CommonScript + """
 
 try {
-    $payload = Get-TetheringManager $env:METAHOTSPOT_ADAPTER_ID
+    $payload = Get-TetheringManager $env:HOTSPOT_ADAPTER_ID
     $manager = $payload.Manager
 
     $resultType = [Windows.Networking.NetworkOperators.NetworkOperatorTetheringOperationResult, Windows, ContentType=WindowsRuntime]
