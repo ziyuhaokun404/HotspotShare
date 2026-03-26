@@ -34,16 +34,22 @@
         </Grid.RowDefinitions>
 
         <ui:TitleBar Grid.Row="0"
-                     Title="HotspotShare">
-            <ui:TitleBar.Header>
-                <StackPanel Orientation="Horizontal" Margin="0,0,8,0">
-                    <ui:Button Padding="8,6"
-                               Appearance="Secondary"
-                               Content="切换主题"
-                               Icon="{ui:SymbolIcon WeatherMoon20}"
-                               Command="{Binding ToggleThemeCommand}" />
+                     Title="HotspotShare"
+                     Height="40">
+            <ui:TitleBar.TrailingContent>
+                <StackPanel Orientation="Horizontal"
+                            VerticalAlignment="Top">
+                    <ui:Button Style="{StaticResource TitleBarActionButtonStyle}"
+                               Command="{Binding ToggleThemeCommand}"
+                               ToolTipService.ToolTip="切换主题">
+                        <ui:Button.Content>
+                            <ui:SymbolIcon FontSize="16"
+                                           Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType={x:Type ui:Button}}}"
+                                           Symbol="WeatherMoon20" />
+                        </ui:Button.Content>
+                    </ui:Button>
                 </StackPanel>
-            </ui:TitleBar.Header>
+            </ui:TitleBar.TrailingContent>
         </ui:TitleBar>
 
         <ui:DynamicScrollViewer Grid.Row="1"
