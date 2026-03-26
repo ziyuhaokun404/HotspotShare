@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#6366F1"/>
+      <stop offset="100%" stop-color="#3B82F6"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Rounded square background -->
+  <rect width="512" height="512" rx="108" fill="url(#bg)"/>
+
+  <!-- WiFi signal arcs -->
+  <g stroke="white" stroke-width="32" stroke-linecap="round" fill="none">
+    <!-- Outer arc -->
+    <path d="M128 228 C128 228 192 148 256 148 C320 148 384 228 384 228"/>
+    <!-- Middle arc -->
+    <path d="M172 276 C172 276 214 220 256 220 C298 220 340 276 340 276"/>
+    <!-- Inner arc -->
+    <path d="M212 320 C212 320 234 288 256 288 C278 288 300 320 300 320"/>
+  </g>
+
+  <!-- Center dot -->
+  <circle cx="256" cy="348" r="22" fill="white"/>
+
+  <!-- Share arrow (bottom right) -->
+  <g transform="translate(320, 360)" fill="white">
+    <path d="M48 0 L48 48 L16 48 L16 24 C16 15 9 8 0 8 L0 8 L0 72 C0 81 7 88 16 88 L80 88 C89 88 96 81 96 72 L96 8 L96 8 C87 8 80 15 80 24 L80 48 L48 48 L48 0 Z"/>
+    <path d="M48 -16 L72 16 L24 16 Z"/>
+  </g>
+</svg>
