@@ -1,9 +1,12 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Drawing;
 using System.IO;
 using System.Windows;
 using HotspotShare.Models;
 using HotspotShare.ViewModels;
+using Application = System.Windows.Application;
+using MessageBox = System.Windows.MessageBox;
 
 namespace HotspotShare;
 
@@ -11,6 +14,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
 {
     private readonly MainWindowViewModel _viewModel = new();
     private readonly PendingPrivilegedAction? _pendingAction = PendingPrivilegedAction.TryLoadFromCommandLine(Environment.GetCommandLineArgs().Skip(1));
+    private System.Windows.Forms.NotifyIcon? _notifyIcon;
 
     public MainWindow()
     {
@@ -20,6 +24,64 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         _viewModel.RequestElevation = OnRequestElevation;
         _viewModel.RequestAlert = OnRequestAlert;
         _viewModel.RequestConfirm = OnRequestConfirm;
+
+        InitializeNotifyIcon();
+    }
+
+    private void InitializeNotifyIcon()
+    {
+        _notifyIcon = new System.Windows.Forms.NotifyIcon
+        {
+            Text = "HotspotShare",
+            Icon = SystemIcons.Application,
+            Visible = false
+        };
+
+        var contextMenu = new System.Windows.Forms.ContextMenuStrip();
+        contextMenu.Items.Add("显示窗口", null, (_, _) => RestoreFromTray());
+        contextMenu.Items.Add("退出", null, (_, _) =>
+        {
+            _notifyIcon.Visible = false;
+            System.Windows.Application.Current.Shutdown();
+        });
+        _notifyIcon.ContextMenuStrip = contextMenu;
+        _notifyIcon.DoubleClick += (_, _) => RestoreFromTray();
+    }
+
+    protected override void OnStateChanged(EventArgs e)
+    {
+        base.OnStateChanged(e);
+        if (WindowState == WindowState.Minimized)
+        {
+            Hide();
+            if (_notifyIcon is not null)
+            {
+                _notifyIcon.Visible = true;
+            }
+        }
+    }
+
+    private void RestoreFromTray()
+    {
+        Show();
+        WindowState = WindowState.Normal;
+        Activate();
+        if (_notifyIcon is not null)
+        {
+            _notifyIcon.Visible = false;
+        }
+    }
+
+    protected override void OnClosed(EventArgs e)
+    {
+        if (_notifyIcon is not null)
+        {
+            _notifyIcon.Visible = false;
+            _notifyIcon.Dispose();
+            _notifyIcon = null;
+        }
+
+        base.OnClosed(e);
     }
 
     private async void Window_Loaded(object sender, RoutedEventArgs e)

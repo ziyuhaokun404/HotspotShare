@@ -1,8 +1,10 @@
 using System.IO;
 using System.Text;
-using System.Windows.Threading;
 using System.Windows;
+using System.Windows.Threading;
 using Wpf.Ui.Appearance;
+using Application = System.Windows.Application;
+using MessageBox = System.Windows.MessageBox;
 
 namespace HotspotShare;
 
@@ -15,7 +17,7 @@ public partial class App : Application
         TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
 
         base.OnStartup(e);
-        ApplicationThemeManager.Apply(ApplicationTheme.Light);
+        ApplicationThemeManager.Apply(ApplicationTheme.Dark);
     }
 
     private void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)

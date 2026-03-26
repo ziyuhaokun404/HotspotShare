@@ -6,6 +6,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using HotspotShare.Models;
 using HotspotShare.Services;
+using Wpf.Ui.Appearance;
 using Wpf.Ui.Controls;
 
 namespace HotspotShare.ViewModels;
@@ -87,10 +88,18 @@ internal partial class MainWindowViewModel : ObservableObject
     private string _logText = string.Empty;
 
     [ObservableProperty]
+    private bool _isDarkTheme;
+
+    [ObservableProperty]
     private bool _isStateOn;
 
     [ObservableProperty]
     private bool _isHeroStateOn;
+
+    [ObservableProperty]
+    private bool _isAutoRefreshEnabled;
+
+    private CancellationTokenSource? _autoRefreshCts;
 
     /// <summary>
     /// View 层注册此回调处理 UAC 提权（需要 Window.Close 和 Process.Start）。
@@ -113,6 +122,65 @@ internal partial class MainWindowViewModel : ObservableObject
         EnsureDefaultInputs();
         await RefreshProfilesAsync(preserveSelection: false, pendingAdapterId: pendingAction?.AdapterId);
         await ExecutePendingActionAsync(pendingAction);
+    }
+
+    [RelayCommand]
+    private void ToggleTheme()
+    {
+        IsDarkTheme = !IsDarkTheme;
+        ApplicationThemeManager.Apply(IsDarkTheme ? ApplicationTheme.Dark : ApplicationTheme.Light);
+    }
+
+    partial void OnIsAutoRefreshEnabledChanged(bool value)
+    {
+        if (value)
+        {
+            StartAutoRefresh();
+        }
+        else
+        {
+            StopAutoRefresh();
+        }
+    }
+
+    private void StartAutoRefresh()
+    {
+        StopAutoRefresh();
+        _autoRefreshCts = new CancellationTokenSource();
+        _ = AutoRefreshLoopAsync(_autoRefreshCts.Token);
+    }
+
+    private void StopAutoRefresh()
+    {
+        _autoRefreshCts?.Cancel();
+        _autoRefreshCts?.Dispose();
+        _autoRefreshCts = null;
+    }
+
+    private async Task AutoRefreshLoopAsync(CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+
+            if (IsBusy)
+            {
+                continue;
+            }
+
+            var adapterId = _activeAdapterId ?? SelectedProfile?.AdapterId;
+            if (!string.IsNullOrWhiteSpace(adapterId))
+            {
+                await RefreshStatusAsync(adapterId, syncInputFields: false, announceProgress: false);
+            }
+        }
     }
 
     partial void OnSelectedProfileChanged(TetheringConnectionProfile? value)
