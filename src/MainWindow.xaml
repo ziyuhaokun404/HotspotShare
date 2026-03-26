@@ -34,10 +34,12 @@
         </Grid.RowDefinitions>
 
         <ui:TitleBar Grid.Row="0"
-                     Title="HotspotShare">
+                     Title="HotspotShare"
+                     Height="44">
             <ui:TitleBar.TrailingContent>
                 <StackPanel Orientation="Horizontal"
-                            VerticalAlignment="Stretch">
+                            Margin="0"
+                            VerticalAlignment="Top">
                     <ui:Button Style="{StaticResource TitleBarActionButtonStyle}"
                                Command="{Binding ToggleThemeCommand}"
                                ToolTipService.ToolTip="切换主题">
