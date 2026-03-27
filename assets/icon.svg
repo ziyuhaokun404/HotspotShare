@@ -1,30 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
-  <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#6366F1"/>
-      <stop offset="100%" stop-color="#3B82F6"/>
-    </linearGradient>
-  </defs>
+  <rect x="24" y="24" width="464" height="464" rx="112" fill="#000000"/>
+  <path d="M84 58C140 32 210 24 278 36C368 52 438 112 466 194V70C466 42 444 24 416 24H130C110 24 92 38 84 58Z" fill="#FFFFFF" fill-opacity="0.10"/>
 
-  <!-- Rounded square background -->
-  <rect width="512" height="512" rx="108" fill="url(#bg)"/>
-
-  <!-- WiFi signal arcs -->
-  <g stroke="white" stroke-width="32" stroke-linecap="round" fill="none">
-    <!-- Outer arc -->
-    <path d="M128 228 C128 228 192 148 256 148 C320 148 384 228 384 228"/>
-    <!-- Middle arc -->
-    <path d="M172 276 C172 276 214 220 256 220 C298 220 340 276 340 276"/>
-    <!-- Inner arc -->
-    <path d="M212 320 C212 320 234 288 256 288 C278 288 300 320 300 320"/>
+  <g stroke="#FFFFFF" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <path d="M104 282C146 208 198 170 256 170C314 170 366 208 408 282" stroke-width="42"/>
+    <path d="M150 334C178 286 214 258 256 258C298 258 334 286 362 334" stroke-width="34"/>
   </g>
 
-  <!-- Center dot -->
-  <circle cx="256" cy="348" r="22" fill="white"/>
-
-  <!-- Share arrow (bottom right) -->
-  <g transform="translate(320, 360)" fill="white">
-    <path d="M48 0 L48 48 L16 48 L16 24 C16 15 9 8 0 8 L0 8 L0 72 C0 81 7 88 16 88 L80 88 C89 88 96 81 96 72 L96 8 L96 8 C87 8 80 15 80 24 L80 48 L48 48 L48 0 Z"/>
-    <path d="M48 -16 L72 16 L24 16 Z"/>
-  </g>
+  <circle cx="256" cy="394" r="32" fill="#FFFFFF"/>
 </svg>

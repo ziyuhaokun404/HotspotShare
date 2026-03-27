@@ -15,6 +15,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     private readonly MainWindowViewModel _viewModel = new();
     private readonly PendingPrivilegedAction? _pendingAction = PendingPrivilegedAction.TryLoadFromCommandLine(Environment.GetCommandLineArgs().Skip(1));
     private System.Windows.Forms.NotifyIcon? _notifyIcon;
+    private Icon? _notifyIconAsset;
 
     public MainWindow()
     {
@@ -30,10 +31,11 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
 
     private void InitializeNotifyIcon()
     {
+        _notifyIconAsset = LoadApplicationIcon();
         _notifyIcon = new System.Windows.Forms.NotifyIcon
         {
             Text = "HotspotShare",
-            Icon = SystemIcons.Application,
+            Icon = _notifyIconAsset,
             Visible = false
         };
 
@@ -80,6 +82,9 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             _notifyIcon.Dispose();
             _notifyIcon = null;
         }
+
+        _notifyIconAsset?.Dispose();
+        _notifyIconAsset = null;
 
         base.OnClosed(e);
     }
@@ -158,5 +163,20 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         }
 
         throw new FileNotFoundException("找不到可用于提权重启的程序文件。", candidate);
+    }
+
+    private static Icon LoadApplicationIcon()
+    {
+        var resourceInfo = Application.GetResourceStream(
+            new Uri("pack://application:,,,/HotspotShare;component/Assets/icon.ico", UriKind.Absolute));
+
+        if (resourceInfo is null)
+        {
+            return (Icon)SystemIcons.Application.Clone();
+        }
+
+        using var stream = resourceInfo.Stream;
+        using var icon = new Icon(stream);
+        return (Icon)icon.Clone();
     }
 }

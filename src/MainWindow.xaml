@@ -9,6 +9,7 @@
         mc:Ignorable="d"
         d:DataContext="{d:DesignInstance vm:MainWindowViewModel}"
         Title="HotspotShare"
+        Icon="pack://application:,,,/HotspotShare;component/Assets/icon.ico"
         Width="1180"
         Height="820"
         MinWidth="980"
@@ -40,6 +41,7 @@
 
         <ui:TitleBar Grid.Row="0"
                      Title="HotspotShare"
+                     Icon="{ui:ImageIcon 'pack://application:,,,/HotspotShare;component/Assets/icon.png'}"
                      Height="44">
             <ui:TitleBar.TrailingContent>
                 <StackPanel Orientation="Horizontal"
