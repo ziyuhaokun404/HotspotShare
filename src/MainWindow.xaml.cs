@@ -1,10 +1,12 @@
+using HotspotShare.Models;
+using HotspotShare.Pages;
+using HotspotShare.ViewModels;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Windows;
-using HotspotShare.Models;
-using HotspotShare.ViewModels;
+using System.Windows.Controls;
 using Application = System.Windows.Application;
 using MessageBox = System.Windows.MessageBox;
 
@@ -25,8 +27,10 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         _viewModel.RequestElevation = OnRequestElevation;
         _viewModel.RequestAlert = OnRequestAlert;
         _viewModel.RequestConfirm = OnRequestConfirm;
+        _viewModel.PropertyChanged += ViewModelOnPropertyChanged;
 
         InitializeNotifyIcon();
+        NavigateToCurrentPage();
     }
 
     private void InitializeNotifyIcon()
@@ -76,6 +80,8 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
 
     protected override void OnClosed(EventArgs e)
     {
+        _viewModel.PropertyChanged -= ViewModelOnPropertyChanged;
+
         if (_notifyIcon is not null)
         {
             _notifyIcon.Visible = false;
@@ -91,7 +97,69 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
 
     private async void Window_Loaded(object sender, RoutedEventArgs e)
     {
+        NavigateToCurrentPage();
         await _viewModel.InitializeAsync(_pendingAction);
+    }
+
+    private void NavItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Wpf.Ui.Controls.NavigationViewItem item || item.Tag is not string pageTag)
+        {
+            return;
+        }
+
+        var navigationItem = _viewModel.NavigationItems.FirstOrDefault(candidate =>
+            candidate.PageTag.Equals(pageTag, StringComparison.OrdinalIgnoreCase));
+        if (navigationItem is not null)
+        {
+            _viewModel.SelectedNavigationItem = navigationItem;
+            return;
+        }
+
+        _viewModel.CurrentPageTag = pageTag;
+    }
+
+    private void ViewModelOnPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(MainWindowViewModel.CurrentPageTag))
+        {
+            NavigateToCurrentPage();
+        }
+    }
+
+    private void NavigateToCurrentPage()
+    {
+        if (ContentFrame.Content is Page currentPage &&
+            currentPage.Tag is string currentTag &&
+            currentTag.Equals(_viewModel.CurrentPageTag, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var page = CreatePage(_viewModel.CurrentPageTag);
+        page.Tag = _viewModel.CurrentPageTag;
+        page.DataContext = _viewModel;
+        ContentFrame.Navigate(page);
+        UpdateNavigationSelection(_viewModel.CurrentPageTag);
+    }
+
+    private Page CreatePage(string pageTag)
+    {
+        return pageTag switch
+        {
+            "devices" => new DevicesPage(),
+            "logs" => new LogsPage(),
+            "about" => new AboutPage(),
+            _ => new DashboardPage()
+        };
+    }
+
+    private void UpdateNavigationSelection(string pageTag)
+    {
+        DashboardNavItem.IsActive = pageTag.Equals("dashboard", StringComparison.OrdinalIgnoreCase);
+        DevicesNavItem.IsActive = pageTag.Equals("devices", StringComparison.OrdinalIgnoreCase);
+        LogsNavItem.IsActive = pageTag.Equals("logs", StringComparison.OrdinalIgnoreCase);
+        AboutNavItem.IsActive = pageTag.Equals("about", StringComparison.OrdinalIgnoreCase);
     }
 
     private void OnRequestAlert(string title, string message)

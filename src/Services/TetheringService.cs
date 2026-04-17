@@ -1,7 +1,7 @@
+using HotspotShare.Models;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
-using HotspotShare.Models;
 
 namespace HotspotShare.Services;
 
@@ -108,6 +108,107 @@ function Get-TetheringManager {
     }
 }
 
+function Get-PropertyValue {
+    param(
+        $Object,
+        [string] $Name
+    )
+
+    if ($null -eq $Object) {
+        return $null
+    }
+
+    $property = $Object.PSObject.Properties[$Name]
+    if ($null -eq $property) {
+        return $null
+    }
+
+    return $property.Value
+}
+
+function Format-MacAddress {
+    param([string] $MacAddress)
+
+    if ([string]::IsNullOrWhiteSpace($MacAddress)) {
+        return ''
+    }
+
+    $normalized = ($MacAddress -replace '[^0-9A-Fa-f]', '').ToUpperInvariant()
+    if ($normalized.Length -ne 12) {
+        return $MacAddress.ToUpperInvariant()
+    }
+
+    $parts = New-Object System.Collections.Generic.List[string]
+    for ($index = 0; $index -lt $normalized.Length; $index += 2) {
+        $parts.Add($normalized.Substring($index, 2))
+    }
+
+    return [string]::Join('-', $parts)
+}
+
+function Resolve-ClientIdentity {
+    param($Client)
+
+    $bestIpv4 = ''
+    $bestIpv6 = ''
+    $bestHostName = ''
+    $hostNames = @(Get-PropertyValue $Client 'HostNames')
+
+    foreach ($hostName in $hostNames) {
+        if ($null -eq $hostName) {
+            continue
+        }
+
+        $type = [string](Get-PropertyValue $hostName 'Type')
+        $canonicalName = [string](Get-PropertyValue $hostName 'CanonicalName')
+        $displayName = [string](Get-PropertyValue $hostName 'DisplayName')
+        $value = if (-not [string]::IsNullOrWhiteSpace($canonicalName)) {
+            $canonicalName
+        }
+        elseif (-not [string]::IsNullOrWhiteSpace($displayName)) {
+            $displayName
+        }
+        else {
+            [string]$hostName
+        }
+
+        if ([string]::IsNullOrWhiteSpace($value)) {
+            continue
+        }
+
+        if ($type -match 'Ipv4') {
+            if ([string]::IsNullOrWhiteSpace($bestIpv4)) {
+                $bestIpv4 = $value
+            }
+            continue
+        }
+
+        if ($type -match 'Ipv6') {
+            if ([string]::IsNullOrWhiteSpace($bestIpv6)) {
+                $bestIpv6 = $value
+            }
+            continue
+        }
+
+        if ([string]::IsNullOrWhiteSpace($bestHostName)) {
+            $bestHostName = $value
+        }
+    }
+
+    $displayName = if (-not [string]::IsNullOrWhiteSpace($bestHostName)) {
+        $bestHostName.Split('.')[0]
+    }
+    else {
+        ''
+    }
+
+    [pscustomobject]@{
+        DisplayName = $displayName
+        IpAddress = if (-not [string]::IsNullOrWhiteSpace($bestIpv4)) { $bestIpv4 } else { $bestIpv6 }
+        RawHostName = $bestHostName
+    }
+}
+
 function New-Status {
     param(
         $Profile,
@@ -118,6 +219,19 @@ function New-Status {
 
     $config = $Manager.GetCurrentAccessPointConfiguration()
     $clients = @($Manager.GetTetheringClients())
+    $clientDetails = foreach ($client in $clients) {
+        if ($null -eq $client) {
+            continue
+        }
+
+        $identity = Resolve-ClientIdentity $client
+        [pscustomobject]@{
+            DisplayName = if ([string]::IsNullOrWhiteSpace($identity.DisplayName)) { '未知设备' } else { $identity.DisplayName }
+            MacAddress = Format-MacAddress ([string](Get-PropertyValue $client 'MacAddress'))
+            IpAddress = [string]$identity.IpAddress
+            RawHostName = [string]$identity.RawHostName
+        }
+    }
 
     [pscustomobject]@{
         ProfileName = $Profile.ProfileName
@@ -126,6 +240,7 @@ function New-Status {
         Ssid = $config.Ssid
         Passphrase = $config.Passphrase
         ClientCount = $clients.Count
+        Clients = @($clientDetails)
         OperationStatus = $OperationStatus
         AdditionalErrorMessage = $AdditionalErrorMessage
     }

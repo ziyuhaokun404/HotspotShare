@@ -2,6 +2,7 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+             xmlns:converters="clr-namespace:HotspotShare.Converters"
              StartupUri="MainWindow.xaml">
     <Application.Resources>
         <ResourceDictionary>
@@ -9,6 +10,9 @@
                 <ui:ThemesDictionary Theme="Light" />
                 <ui:ControlsDictionary />
             </ResourceDictionary.MergedDictionaries>
+
+            <converters:InverseBooleanConverter x:Key="InverseBooleanConverter" />
+            <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
 
             <Style x:Key="SectionTitleTextBlockStyle" TargetType="TextBlock">
                 <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
@@ -46,6 +50,55 @@
                 <Setter Property="Background" Value="{DynamicResource ControlFillColorSecondaryBrush}" />
                 <Setter Property="BorderBrush" Value="{DynamicResource ControlStrokeColorSecondaryBrush}" />
                 <Setter Property="BorderThickness" Value="1" />
+            </Style>
+
+            <Style x:Key="PanelCardBorderStyle" TargetType="Border">
+                <Setter Property="CornerRadius" Value="12" />
+                <Setter Property="Background" Value="{DynamicResource LayerFillColorDefaultBrush}" />
+                <Setter Property="BorderBrush" Value="{DynamicResource CardStrokeColorDefaultBrush}" />
+                <Setter Property="BorderThickness" Value="1" />
+            </Style>
+
+            <Style x:Key="LogMetricBorderStyle"
+                   BasedOn="{StaticResource StatusChipBorderStyle}"
+                   TargetType="Border">
+                <Setter Property="Padding" Value="16,14" />
+                <Setter Property="MinWidth" Value="148" />
+                <Setter Property="Background" Value="{DynamicResource LayerOnMicaBaseAltFillColorSecondaryBrush}" />
+            </Style>
+
+            <Style x:Key="DetailLabelTextBlockStyle"
+                   BasedOn="{StaticResource BodySecondaryTextBlockStyle}"
+                   TargetType="TextBlock">
+                <Setter Property="FontSize" Value="12" />
+                <Setter Property="FontWeight" Value="SemiBold" />
+            </Style>
+
+            <Style x:Key="LogTagBorderStyle" TargetType="Border">
+                <Setter Property="Padding" Value="8,3" />
+                <Setter Property="CornerRadius" Value="6" />
+                <Setter Property="Background" Value="{DynamicResource ControlFillColorSecondaryBrush}" />
+                <Setter Property="BorderBrush" Value="{DynamicResource ControlStrokeColorSecondaryBrush}" />
+                <Setter Property="BorderThickness" Value="1" />
+            </Style>
+
+            <Style x:Key="LogPrimaryTextBlockStyle" TargetType="TextBlock">
+                <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
+                <Setter Property="FontSize" Value="14" />
+                <Setter Property="TextWrapping" Value="Wrap" />
+            </Style>
+
+            <Style x:Key="LogMetaTextBlockStyle"
+                   BasedOn="{StaticResource BodySecondaryTextBlockStyle}"
+                   TargetType="TextBlock">
+                <Setter Property="FontSize" Value="12" />
+            </Style>
+
+            <Style x:Key="LogTagTextBlockStyle"
+                   BasedOn="{StaticResource LogMetaTextBlockStyle}"
+                   TargetType="TextBlock">
+                <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
+                <Setter Property="FontWeight" Value="SemiBold" />
             </Style>
 
             <Style x:Key="TitleBarActionButtonStyle"

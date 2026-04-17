@@ -14,6 +14,8 @@ internal sealed class TetheringStatus
 
     public int ClientCount { get; set; }
 
+    public List<TetheringClientInfo> Clients { get; set; } = [];
+
     public string OperationStatus { get; set; } = string.Empty;
 
     public string AdditionalErrorMessage { get; set; } = string.Empty;

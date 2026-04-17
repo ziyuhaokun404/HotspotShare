@@ -1,11 +1,12 @@
-using System.Collections.ObjectModel;
-using System.Security.Cryptography;
-using System.Security.Principal;
-using System.Text;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using HotspotShare.Models;
 using HotspotShare.Services;
+using System.Collections.ObjectModel;
+using System.IO;
+using System.Security.Cryptography;
+using System.Security.Principal;
+using System.Text;
 using Wpf.Ui.Appearance;
 using Wpf.Ui.Controls;
 
@@ -13,16 +14,36 @@ namespace HotspotShare.ViewModels;
 
 internal partial class MainWindowViewModel : ObservableObject
 {
+    private readonly DeviceAliasStore _deviceAliasStore = new();
+    private readonly AppLogService _logService =
+        System.Windows.Application.Current is App
+            ? App.Logs
+            : new AppLogService(Path.Combine(Path.GetTempPath(), "HotspotShare", "design-logs"));
     private readonly TetheringService _tetheringService = new();
+    private readonly Dictionary<string, TetheringClientInfo> _clientCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string> _deviceAliases;
+    private static readonly TimeSpan ClientDisconnectRetention = TimeSpan.FromSeconds(60);
     private string? _activeAdapterId;
 
     public static string[] BandOptions { get; } = ["自动", "2.4 GHz", "5 GHz"];
     private static readonly string[] BandValues = ["Auto", "TwoPointFourGigahertz", "FiveGigahertz"];
 
     public ObservableCollection<TetheringConnectionProfile> Profiles { get; } = [];
+    public ObservableCollection<TetheringClientInfo> ConnectedClients { get; } = [];
+    public ObservableCollection<AppLogEntry> RecentLogs => _logService.Entries;
+    public ObservableCollection<AppNavigationItem> NavigationItems { get; } =
+    [
+        new() { Title = "控制台", Description = "热点控制", Symbol = SymbolRegular.Wifi320, PageTag = "dashboard" },
+        new() { Title = "设备", Description = "连接设备", Symbol = SymbolRegular.People20, PageTag = "devices" },
+        new() { Title = "日志", Description = "执行日志", Symbol = SymbolRegular.DocumentText20, PageTag = "logs" },
+        new() { Title = "关于", Description = "软件信息", Symbol = SymbolRegular.Info20, PageTag = "about" }
+    ];
 
     [ObservableProperty]
     private TetheringConnectionProfile? _selectedProfile;
+
+    [ObservableProperty]
+    private AppNavigationItem? _selectedNavigationItem;
 
     [ObservableProperty]
     private string _ssid = string.Empty;
@@ -38,6 +59,9 @@ internal partial class MainWindowViewModel : ObservableObject
 
     [ObservableProperty]
     private string _busyMessage = "就绪。";
+
+    [ObservableProperty]
+    private string _currentPageTag = "dashboard";
 
     [ObservableProperty]
     private string _heroProfileValue = "-";
@@ -85,7 +109,7 @@ internal partial class MainWindowViewModel : ObservableObject
     private string _profileHint = "从系统共享连接里选择一个来源连接。";
 
     [ObservableProperty]
-    private string _logText = string.Empty;
+    private AppLogEntry? _selectedLogEntry;
 
     [ObservableProperty]
     private bool _isDarkTheme = true;
@@ -118,6 +142,42 @@ internal partial class MainWindowViewModel : ObservableObject
     /// View 层注册此回调显示提示消息。
     /// </summary>
     public Action<string, string>? RequestAlert { get; set; }
+
+    public MainWindowViewModel()
+    {
+        _deviceAliases = _deviceAliasStore.Load();
+        SelectedNavigationItem = NavigationItems.FirstOrDefault();
+        CurrentPageTag = SelectedNavigationItem?.PageTag ?? "dashboard";
+        RecentLogs.CollectionChanged += (_, _) =>
+        {
+            OnPropertyChanged(nameof(LogText));
+            OnPropertyChanged(nameof(LogCountValue));
+            OnPropertyChanged(nameof(ErrorLogCountValue));
+            OnPropertyChanged(nameof(WarningLogCountValue));
+            OnPropertyChanged(nameof(LatestLogTimeValue));
+            if (RecentLogs.Count == 0)
+            {
+                SelectedLogEntry = null;
+                return;
+            }
+
+            if (SelectedLogEntry is null || !RecentLogs.Contains(SelectedLogEntry))
+            {
+                SelectedLogEntry = RecentLogs[0];
+            }
+        };
+
+        if (RecentLogs.Count > 0)
+        {
+            SelectedLogEntry = RecentLogs[0];
+        }
+    }
+
+    public string LogText => _logService.BuildTextSnapshot();
+    public string LogCountValue => RecentLogs.Count.ToString();
+    public string ErrorLogCountValue => RecentLogs.Count(entry => string.Equals(entry.Level, "Error", StringComparison.OrdinalIgnoreCase)).ToString();
+    public string WarningLogCountValue => RecentLogs.Count(entry => string.Equals(entry.Level, "Warning", StringComparison.OrdinalIgnoreCase)).ToString();
+    public string LatestLogTimeValue => RecentLogs.Count == 0 ? "-" : RecentLogs.Max(entry => entry.Timestamp).ToString("HH:mm:ss");
 
     public async Task InitializeAsync(PendingPrivilegedAction? pendingAction)
     {
@@ -198,6 +258,16 @@ internal partial class MainWindowViewModel : ObservableObject
         _ = RefreshStatusAsync(value.AdapterId, syncInputFields: true, announceProgress: true);
     }
 
+    partial void OnSelectedNavigationItemChanged(AppNavigationItem? value)
+    {
+        if (value is null)
+        {
+            return;
+        }
+
+        CurrentPageTag = value.PageTag;
+    }
+
     [RelayCommand]
     private async Task RefreshProfilesAsync()
     {
@@ -209,7 +279,15 @@ internal partial class MainWindowViewModel : ObservableObject
     {
         Passphrase = CreatePassphrase(12);
         SetResultState("密码已更新", "已生成新的热点密码。", InfoBarSeverity.Informational);
-        AppendLog("已生成新的热点密码。");
+        WriteInformationLog("已生成新的热点密码。", category: "Configuration", eventId: "hotspot.passphrase.generated");
+    }
+
+    [RelayCommand]
+    private void ClearLog()
+    {
+        _logService.ClearCurrentLogAsync().GetAwaiter().GetResult();
+        SetResultState("日志已清空", "已清空执行日志。", InfoBarSeverity.Informational);
+        OnPropertyChanged(nameof(LogText));
     }
 
     [RelayCommand]
@@ -217,6 +295,7 @@ internal partial class MainWindowViewModel : ObservableObject
     {
         if (SelectedProfile is null)
         {
+            WriteWarningLog("启动热点前未选择共享连接。", category: "Hotspot", eventId: "hotspot.start.missing-profile");
             RequestAlert?.Invoke("缺少共享连接", "请先选择一个可共享的连接。");
             return;
         }
@@ -232,6 +311,11 @@ internal partial class MainWindowViewModel : ObservableObject
 
         if (!IsRunningAsAdministrator())
         {
+            WriteWarningLog(
+                "启动热点需要管理员权限，已请求提权。",
+                category: "Hotspot",
+                eventId: "hotspot.start.elevation-required",
+                details: $"AdapterId={SelectedProfile.AdapterId}; SSID={ssid}; Band={band}");
             RequestElevation?.Invoke("启动热点共享",
                 PendingPrivilegedAction.CreateStart(SelectedProfile.AdapterId, ssid, passphrase, band));
             return;
@@ -246,12 +330,18 @@ internal partial class MainWindowViewModel : ObservableObject
         var adapterId = _activeAdapterId ?? SelectedProfile?.AdapterId;
         if (string.IsNullOrWhiteSpace(adapterId))
         {
+            WriteWarningLog("停止热点时未找到可用的共享连接。", category: "Hotspot", eventId: "hotspot.stop.missing-profile");
             RequestAlert?.Invoke("无法停止热点", "当前没有可用于停止的共享连接。");
             return;
         }
 
         if (!IsRunningAsAdministrator())
         {
+            WriteWarningLog(
+                "停止热点需要管理员权限，已请求提权。",
+                category: "Hotspot",
+                eventId: "hotspot.stop.elevation-required",
+                details: $"AdapterId={adapterId}");
             RequestElevation?.Invoke("停止热点共享", PendingPrivilegedAction.CreateStop(adapterId));
             return;
         }
@@ -259,11 +349,58 @@ internal partial class MainWindowViewModel : ObservableObject
         await StopSharingCoreAsync(adapterId);
     }
 
+    [RelayCommand]
+    private void SaveClientAlias(TetheringClientInfo? client)
+    {
+        if (client is null || string.IsNullOrWhiteSpace(client.MacAddress))
+        {
+            return;
+        }
+
+        var alias = client.Alias.Trim();
+        if (string.IsNullOrWhiteSpace(alias))
+        {
+            _deviceAliases.Remove(client.MacAddress);
+            client.Alias = string.Empty;
+        }
+        else
+        {
+            _deviceAliases[client.MacAddress] = alias;
+            client.Alias = alias;
+        }
+
+        client.DisplayName = ResolveDisplayName(client.Alias, client.DetectedName);
+        PersistAliases();
+        SetResultState("备注名已保存", $"已更新 {client.MacAddress} 的备注名。", InfoBarSeverity.Success);
+        AppendLog($"已更新设备备注名：{client.MacAddress} -> {client.DisplayName}");
+    }
+
+    [RelayCommand]
+    private void ClearClientAlias(TetheringClientInfo? client)
+    {
+        if (client is null || string.IsNullOrWhiteSpace(client.MacAddress))
+        {
+            return;
+        }
+
+        _deviceAliases.Remove(client.MacAddress);
+        client.Alias = string.Empty;
+        client.DisplayName = ResolveDisplayName(client.Alias, client.DetectedName);
+        PersistAliases();
+        SetResultState("备注名已清除", $"已恢复 {client.MacAddress} 的自动识别名称。", InfoBarSeverity.Informational);
+        AppendLog($"已清除设备备注名：{client.MacAddress}");
+    }
+
     private async Task StartSharingCoreAsync(TetheringConnectionProfile profile, string ssid, string passphrase, string band)
     {
         try
         {
             SetBusy(true, "正在启动 Windows 移动热点并共享所选连接...");
+            WriteInformationLog(
+                "开始启动移动热点。",
+                category: "Hotspot",
+                eventId: "hotspot.start.begin",
+                details: $"Profile={profile.Name}; AdapterId={profile.AdapterId}; SSID={ssid}; Band={band}");
 
             var result = await _tetheringService.StartHotspotAsync(profile.AdapterId, ssid, passphrase, band);
             ApplyResult(result);
@@ -297,6 +434,11 @@ internal partial class MainWindowViewModel : ObservableObject
         try
         {
             SetBusy(true, "正在停止移动热点...");
+            WriteInformationLog(
+                "开始停止移动热点。",
+                category: "Hotspot",
+                eventId: "hotspot.stop.begin",
+                details: $"AdapterId={adapterId}");
 
             var result = await _tetheringService.StopHotspotAsync(adapterId);
             ApplyResult(result);
@@ -330,6 +472,11 @@ internal partial class MainWindowViewModel : ObservableObject
         try
         {
             SetBusy(true, "正在读取系统可共享连接...");
+            WriteDebugLog(
+                "开始读取系统可共享连接。",
+                category: "Profiles",
+                eventId: "profiles.refresh.begin",
+                details: $"PreserveSelection={preserveSelection}; PendingAdapterId={pendingAdapterId ?? "-"}");
 
             var previousAdapterId = preserveSelection
                 ? SelectedProfile?.AdapterId ?? _activeAdapterId
@@ -349,6 +496,12 @@ internal partial class MainWindowViewModel : ObservableObject
             SelectedProfile =
                 Profiles.FirstOrDefault(p => p.AdapterId.Equals(previousAdapterId, StringComparison.OrdinalIgnoreCase)) ??
                 Profiles.FirstOrDefault();
+
+            WriteInformationLog(
+                $"已加载 {Profiles.Count} 个可共享连接。",
+                category: "Profiles",
+                eventId: "profiles.refresh.success",
+                details: $"SelectedAdapterId={SelectedProfile?.AdapterId ?? "-"}");
         }
         catch (Exception ex)
         {
@@ -381,9 +534,31 @@ internal partial class MainWindowViewModel : ObservableObject
                 SetBusy(true, "正在读取所选连接的热点状态...");
             }
 
+            WriteDebugLog(
+                "开始读取热点状态。",
+                category: "Status",
+                eventId: "status.refresh.begin",
+                details: $"AdapterId={adapterId}; SyncInputs={syncInputFields}; Announce={announceProgress}");
+
             var status = await _tetheringService.GetStatusAsync(adapterId);
             ApplyStatus(status, syncInputFields);
             SetResultState("状态已同步", "热点状态已更新。", InfoBarSeverity.Informational);
+            if (announceProgress)
+            {
+                WriteInformationLog(
+                    "热点状态已更新。",
+                    category: "Status",
+                    eventId: "status.refresh.success",
+                    details: $"AdapterId={status.AdapterId}; State={status.State}; ClientCount={status.ClientCount}; Ssid={status.Ssid}");
+            }
+            else
+            {
+                WriteDebugLog(
+                    "热点状态已更新。",
+                    category: "Status",
+                    eventId: "status.refresh.success",
+                    details: $"AdapterId={status.AdapterId}; State={status.State}; ClientCount={status.ClientCount}; Ssid={status.Ssid}");
+            }
         }
         catch (Exception ex)
         {
@@ -408,12 +583,16 @@ internal partial class MainWindowViewModel : ObservableObject
         if (!IsRunningAsAdministrator())
         {
             SetResultState("管理员操作未恢复", "检测到待执行操作，但当前进程仍不是管理员身份。", InfoBarSeverity.Warning);
-            AppendLog("检测到待执行操作，但当前进程仍不是管理员身份。");
+            WriteWarningLog("检测到待执行操作，但当前进程仍不是管理员身份。", category: "Elevation", eventId: "elevation.restore.not-admin");
             return;
         }
 
         SetResultState("已恢复操作", $"程序已重新以管理员身份启动，正在继续{pendingAction.ActionName}。", InfoBarSeverity.Informational);
-        AppendLog($"程序已重新以管理员身份启动，正在继续{pendingAction.ActionName}。");
+        WriteInformationLog(
+            $"程序已重新以管理员身份启动，正在继续{pendingAction.ActionName}。",
+            category: "Elevation",
+            eventId: "elevation.restore.success",
+            details: $"Action={pendingAction.ActionName}; AdapterId={pendingAction.AdapterId ?? "-"}");
 
         if (pendingAction.Kind == PendingPrivilegedActionKind.Start)
         {
@@ -421,7 +600,7 @@ internal partial class MainWindowViewModel : ObservableObject
             if (profile is null)
             {
                 SetResultState("无法恢复操作", "重新启动后未找到之前选择的共享连接。", InfoBarSeverity.Error);
-                AppendLog("重新启动后未找到之前选择的共享连接。");
+                WriteErrorLog("重新启动后未找到之前选择的共享连接。", category: "Elevation", eventId: "elevation.restore.profile-missing");
                 return;
             }
 
@@ -465,7 +644,7 @@ internal partial class MainWindowViewModel : ObservableObject
         if (string.IsNullOrWhiteSpace(adapterId))
         {
             SetResultState("无法恢复操作", "重新启动后没有找到可停止的共享连接。", InfoBarSeverity.Error);
-            AppendLog("重新启动后没有找到可停止的共享连接。");
+            WriteErrorLog("重新启动后没有找到可停止的共享连接。", category: "Elevation", eventId: "elevation.restore.stop-missing");
             return;
         }
 
@@ -488,6 +667,7 @@ internal partial class MainWindowViewModel : ObservableObject
         ClientCountValue = status.ClientCount.ToString();
         HeroClientCount = status.ClientCount.ToString();
         OperationValue = string.IsNullOrWhiteSpace(status.OperationStatus) ? "-" : status.OperationStatus;
+        UpdateConnectedClients(status.Clients, isOn);
 
         if (isOn)
         {
@@ -521,7 +701,11 @@ internal partial class MainWindowViewModel : ObservableObject
             result.Success ? "操作完成" : "操作未完成",
             result.Message,
             result.Success ? InfoBarSeverity.Success : InfoBarSeverity.Error);
-        AppendLog(result.Message);
+        WriteLog(
+            result.Success ? InfoBarSeverity.Success : InfoBarSeverity.Error,
+            result.Message,
+            category: "Hotspot",
+            eventId: result.Success ? "hotspot.operation.success" : "hotspot.operation.failed");
 
         if (!result.Success)
         {
@@ -533,7 +717,7 @@ internal partial class MainWindowViewModel : ObservableObject
     {
         var message = $"{context}：{exception.Message}";
         SetResultState("发生错误", message, InfoBarSeverity.Error);
-        AppendLog(message);
+        WriteErrorLog(message, category: "Exception", exception: exception, eventId: "hotspot.exception");
 
         if (showAlert)
         {
@@ -556,16 +740,7 @@ internal partial class MainWindowViewModel : ObservableObject
 
     private void AppendLog(string message)
     {
-        var line = $"{DateTime.Now:HH:mm:ss}  {message}";
-        if (string.IsNullOrWhiteSpace(LogText))
-        {
-            LogText = line;
-            return;
-        }
-
-        var allLines = new List<string> { line };
-        allLines.AddRange(LogText.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries).Take(19));
-        LogText = string.Join(Environment.NewLine, allLines);
+        WriteInformationLog(message, category: "Hotspot", eventId: "hotspot.info");
     }
 
     private void ClearStatus()
@@ -580,6 +755,200 @@ internal partial class MainWindowViewModel : ObservableObject
         ClientCountValue = "0";
         HeroClientCount = "0";
         OperationValue = "-";
+        _clientCache.Clear();
+        ConnectedClients.Clear();
+    }
+
+    private void UpdateConnectedClients(IReadOnlyList<TetheringClientInfo>? clients, bool hotspotOn)
+    {
+        if (!hotspotOn)
+        {
+            _clientCache.Clear();
+            ConnectedClients.Clear();
+            return;
+        }
+
+        var now = DateTime.Now;
+        var activeMacAddresses = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var client in clients ?? [])
+        {
+            var normalizedMac = NormalizeMacAddress(client.MacAddress);
+            if (string.IsNullOrWhiteSpace(normalizedMac))
+            {
+                continue;
+            }
+
+            activeMacAddresses.Add(normalizedMac);
+
+            if (!_clientCache.TryGetValue(normalizedMac, out var trackedClient))
+            {
+                trackedClient = new TetheringClientInfo
+                {
+                    MacAddress = normalizedMac,
+                    FirstSeenAt = now
+                };
+                _clientCache[normalizedMac] = trackedClient;
+            }
+
+            var wasConnected = trackedClient.IsConnected;
+
+            trackedClient.MacAddress = normalizedMac;
+            trackedClient.RawHostName = client.RawHostName?.Trim() ?? string.Empty;
+            trackedClient.DetectedName = NormalizeDisplayName(client.DisplayName, trackedClient.RawHostName);
+            trackedClient.Alias = ResolveAlias(normalizedMac);
+            trackedClient.DisplayName = ResolveDisplayName(trackedClient.Alias, trackedClient.DetectedName);
+            trackedClient.IpAddress = client.IpAddress?.Trim() ?? string.Empty;
+            trackedClient.IpAddressDisplay = FormatIpAddressDisplay(trackedClient.IpAddress);
+            trackedClient.LastSeenAt = now;
+            trackedClient.IsConnected = true;
+            trackedClient.ConnectionState = string.IsNullOrWhiteSpace(trackedClient.IpAddress)
+                ? "已连接（无 IP）"
+                : "已连接";
+            trackedClient.ConnectedDurationText = FormatDuration(now - trackedClient.FirstSeenAt);
+
+            if (!wasConnected)
+            {
+                WriteInformationLog(
+                    $"设备已连接：{trackedClient.DisplayName}",
+                    category: "Device",
+                    eventId: "device.connected",
+                    details: $"MAC={trackedClient.MacAddress}; IP={trackedClient.IpAddressDisplay}; Host={trackedClient.RawHostName}");
+            }
+        }
+
+        var removedMacAddresses = new List<string>();
+        foreach (var trackedClient in _clientCache.Values)
+        {
+            if (activeMacAddresses.Contains(trackedClient.MacAddress))
+            {
+                continue;
+            }
+
+            var disconnectedFor = now - trackedClient.LastSeenAt;
+            if (disconnectedFor > ClientDisconnectRetention)
+            {
+                removedMacAddresses.Add(trackedClient.MacAddress);
+                continue;
+            }
+
+            if (trackedClient.IsConnected)
+            {
+                WriteWarningLog(
+                    $"设备已断开：{trackedClient.DisplayName}",
+                    category: "Device",
+                    eventId: "device.disconnected",
+                    details: $"MAC={trackedClient.MacAddress}; IP={trackedClient.IpAddressDisplay}");
+            }
+
+            trackedClient.IsConnected = false;
+            trackedClient.ConnectionState = "刚断开";
+            trackedClient.ConnectedDurationText = FormatDuration(trackedClient.LastSeenAt - trackedClient.FirstSeenAt);
+            trackedClient.IpAddressDisplay = FormatIpAddressDisplay(trackedClient.IpAddress);
+        }
+
+        foreach (var macAddress in removedMacAddresses)
+        {
+            _clientCache.Remove(macAddress);
+        }
+
+        ConnectedClients.Clear();
+        foreach (var client in _clientCache.Values.OrderBy(GetClientSortOrder).ThenByDescending(client => client.LastSeenAt))
+        {
+            ConnectedClients.Add(client);
+        }
+    }
+
+    private static int GetClientSortOrder(TetheringClientInfo client)
+    {
+        if (client.IsConnected && !string.IsNullOrWhiteSpace(client.IpAddress))
+        {
+            return 0;
+        }
+
+        if (client.IsConnected)
+        {
+            return 1;
+        }
+
+        return 2;
+    }
+
+    private static string NormalizeDisplayName(string? displayName, string? rawHostName)
+    {
+        if (!string.IsNullOrWhiteSpace(displayName))
+        {
+            return displayName.Trim();
+        }
+
+        if (!string.IsNullOrWhiteSpace(rawHostName))
+        {
+            return rawHostName.Trim();
+        }
+
+        return "未知设备";
+    }
+
+    private string ResolveAlias(string macAddress)
+    {
+        return _deviceAliases.TryGetValue(macAddress, out var alias)
+            ? alias
+            : string.Empty;
+    }
+
+    private static string ResolveDisplayName(string? alias, string? detectedName)
+    {
+        if (!string.IsNullOrWhiteSpace(alias))
+        {
+            return alias.Trim();
+        }
+
+        return NormalizeDisplayName(detectedName, null);
+    }
+
+    private static string NormalizeMacAddress(string? macAddress)
+    {
+        if (string.IsNullOrWhiteSpace(macAddress))
+        {
+            return string.Empty;
+        }
+
+        var normalized = new string(macAddress.Where(Uri.IsHexDigit).ToArray()).ToUpperInvariant();
+        if (normalized.Length != 12)
+        {
+            return macAddress.Trim().ToUpperInvariant();
+        }
+
+        return string.Join("-", Enumerable.Range(0, 6).Select(index => normalized.Substring(index * 2, 2)));
+    }
+
+    private static string FormatIpAddressDisplay(string? ipAddress)
+    {
+        return string.IsNullOrWhiteSpace(ipAddress) ? "未分配" : ipAddress.Trim();
+    }
+
+    private static string FormatDuration(TimeSpan duration)
+    {
+        if (duration < TimeSpan.Zero)
+        {
+            duration = TimeSpan.Zero;
+        }
+
+        return duration.TotalHours >= 1
+            ? duration.ToString(@"hh\:mm\:ss")
+            : duration.ToString(@"mm\:ss");
+    }
+
+    private void PersistAliases()
+    {
+        try
+        {
+            _deviceAliasStore.Save(_deviceAliases);
+        }
+        catch (Exception ex)
+        {
+            HandleException("保存设备备注名失败", ex, showAlert: false);
+        }
     }
 
     private void UpdateAdministratorHint()
@@ -689,5 +1058,53 @@ internal partial class MainWindowViewModel : ObservableObject
         }
 
         return builder.ToString();
+    }
+
+    private void WriteInformationLog(string message, string category, string? eventId = null, string? details = null)
+    {
+        _logService.WriteInformationAsync(message, category, nameof(MainWindowViewModel), details, eventId)
+            .GetAwaiter()
+            .GetResult();
+        OnPropertyChanged(nameof(LogText));
+    }
+
+    private void WriteDebugLog(string message, string category, string? eventId = null, string? details = null)
+    {
+        _logService.WriteDebugAsync(message, category, nameof(MainWindowViewModel), details, eventId)
+            .GetAwaiter()
+            .GetResult();
+        OnPropertyChanged(nameof(LogText));
+    }
+
+    private void WriteWarningLog(string message, string category, string? eventId = null, string? details = null)
+    {
+        _logService.WriteWarningAsync(message, category, nameof(MainWindowViewModel), details, eventId)
+            .GetAwaiter()
+            .GetResult();
+        OnPropertyChanged(nameof(LogText));
+    }
+
+    private void WriteErrorLog(string message, string category, Exception? exception = null, string? eventId = null, string? details = null)
+    {
+        _logService.WriteErrorAsync(message, category, nameof(MainWindowViewModel), exception, details, eventId)
+            .GetAwaiter()
+            .GetResult();
+        OnPropertyChanged(nameof(LogText));
+    }
+
+    private void WriteLog(InfoBarSeverity severity, string message, string category, string? eventId = null, string? details = null)
+    {
+        switch (severity)
+        {
+            case InfoBarSeverity.Error:
+                WriteErrorLog(message, category, eventId: eventId, details: details);
+                break;
+            case InfoBarSeverity.Warning:
+                WriteWarningLog(message, category, eventId, details);
+                break;
+            default:
+                WriteInformationLog(message, category, eventId, details);
+                break;
+        }
     }
 }

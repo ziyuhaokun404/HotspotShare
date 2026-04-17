@@ -1,0 +1,127 @@
+<Page x:Class="HotspotShare.Pages.DevicesPage"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+      xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+      xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+      mc:Ignorable="d"
+      Background="Transparent">
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <TextBlock Style="{StaticResource SectionTitleTextBlockStyle}"
+                   Text="已连接设备" />
+        <TextBlock Grid.Row="1"
+                   Margin="0,6,0,0"
+                   Style="{StaticResource BodySecondaryTextBlockStyle}"
+                   Text="显示热点客户端的设备名、MAC、IP、连接时长和当前状态。" />
+
+        <Grid Grid.Row="2"
+              Margin="0,18,0,0">
+            <TextBlock HorizontalAlignment="Center"
+                       VerticalAlignment="Center"
+                       TextAlignment="Center"
+                       Text="当前没有设备连接到热点。&#x0a;设备连接后会在这里显示 MAC、IP 和连接时长。">
+                <TextBlock.Style>
+                    <Style BasedOn="{StaticResource BodySecondaryTextBlockStyle}"
+                           TargetType="TextBlock">
+                        <Setter Property="Visibility" Value="Collapsed" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding ElementName=ConnectedClientsList, Path=HasItems}"
+                                         Value="False">
+                                <Setter Property="Visibility" Value="Visible" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </TextBlock.Style>
+            </TextBlock>
+
+            <ListBox x:Name="ConnectedClientsList"
+                     ItemsSource="{Binding ConnectedClients}"
+                     BorderThickness="0"
+                     Background="Transparent"
+                     ScrollViewer.VerticalScrollBarVisibility="Auto"
+                     Visibility="{Binding ElementName=ConnectedClientsList, Path=HasItems, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <ListBox.ItemContainerStyle>
+                    <Style TargetType="ListBoxItem">
+                        <Setter Property="Padding" Value="0" />
+                        <Setter Property="Margin" Value="0,0,0,12" />
+                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                    </Style>
+                </ListBox.ItemContainerStyle>
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <Border Padding="14"
+                                CornerRadius="8"
+                                BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1"
+                                Background="{DynamicResource LayerFillColorDefaultBrush}">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+
+                                <StackPanel>
+                                    <TextBlock FontSize="15"
+                                               FontWeight="SemiBold"
+                                               Text="{Binding DisplayName}" />
+                                    <TextBlock Margin="0,8,0,0"
+                                               Style="{StaticResource BodySecondaryTextBlockStyle}"
+                                               Text="{Binding MacAddress}" />
+                                    <TextBlock Margin="0,4,0,0"
+                                               Style="{StaticResource BodySecondaryTextBlockStyle}"
+                                               Text="{Binding IpAddressDisplay}" />
+                                    <Grid Margin="0,12,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+
+                                        <ui:TextBox MinHeight="36"
+                                                    PlaceholderText="备注名"
+                                                    Text="{Binding Alias, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                        <ui:Button Grid.Column="1"
+                                                   Margin="8,0,0,0"
+                                                   Appearance="Secondary"
+                                                   Icon="{ui:SymbolIcon Save20}"
+                                                   ToolTipService.ToolTip="保存备注名"
+                                                   Command="{Binding DataContext.SaveClientAliasCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
+                                                   CommandParameter="{Binding}" />
+                                        <ui:Button Grid.Column="2"
+                                                   Margin="8,0,0,0"
+                                                   Appearance="Secondary"
+                                                   Icon="{ui:SymbolIcon Dismiss20}"
+                                                   ToolTipService.ToolTip="清除备注名"
+                                                   Command="{Binding DataContext.ClearClientAliasCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
+                                                   CommandParameter="{Binding}" />
+                                    </Grid>
+                                </StackPanel>
+
+                                <StackPanel Grid.Column="1"
+                                            HorizontalAlignment="Right">
+                                    <Border Padding="10,4"
+                                            CornerRadius="999"
+                                            Background="{DynamicResource SubtleFillColorSecondaryBrush}">
+                                        <TextBlock FontSize="12"
+                                                   FontWeight="SemiBold"
+                                                   Text="{Binding ConnectionState}" />
+                                    </Border>
+                                    <TextBlock Margin="0,10,0,0"
+                                               HorizontalAlignment="Right"
+                                               Style="{StaticResource BodySecondaryTextBlockStyle}"
+                                               Text="{Binding ConnectedDurationText}" />
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </Grid>
+    </Grid>
+</Page>

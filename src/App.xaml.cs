@@ -1,7 +1,7 @@
 using System.IO;
-using System.Text;
 using System.Windows;
 using System.Windows.Threading;
+using HotspotShare.Services;
 using Wpf.Ui.Appearance;
 using Application = System.Windows.Application;
 using MessageBox = System.Windows.MessageBox;
@@ -10,6 +10,8 @@ namespace HotspotShare;
 
 public partial class App : Application
 {
+    internal static AppLogService Logs { get; private set; } = null!;
+
     protected override void OnStartup(StartupEventArgs e)
     {
         DispatcherUnhandledException += OnDispatcherUnhandledException;
@@ -17,14 +19,24 @@ public partial class App : Application
         TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
 
         base.OnStartup(e);
+        Logs = new AppLogService(GetLogDirectory());
+        Logs.InitializeAsync().GetAwaiter().GetResult();
         ApplicationThemeManager.Apply(ApplicationTheme.Dark);
+    }
+
+    protected override void OnExit(ExitEventArgs e)
+    {
+        Logs.Dispose();
+        base.OnExit(e);
     }
 
     private void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
     {
-        WriteExceptionLog("DispatcherUnhandledException", e.Exception);
+        Logs.WriteErrorAsync("程序发生未处理异常。", "Application", nameof(App), e.Exception, eventId: "app.dispatcher-unhandled")
+            .GetAwaiter()
+            .GetResult();
         MessageBox.Show(
-            $"程序发生未处理异常：{e.Exception.Message}{Environment.NewLine}{Environment.NewLine}日志位置：{GetLogPath()}",
+            $"程序发生未处理异常：{e.Exception.Message}{Environment.NewLine}{Environment.NewLine}日志位置：{Logs.GetCurrentLogFilePath()}",
             "HotspotShare",
             MessageBoxButton.OK,
             MessageBoxImage.Error);
@@ -35,42 +47,25 @@ public partial class App : Application
     {
         if (e.ExceptionObject is Exception exception)
         {
-            WriteExceptionLog("CurrentDomainUnhandledException", exception);
+            Logs.WriteErrorAsync("程序发生 AppDomain 未处理异常。", "Application", nameof(App), exception, eventId: "app.domain-unhandled")
+                .GetAwaiter()
+                .GetResult();
         }
     }
 
     private void OnUnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e)
     {
-        WriteExceptionLog("UnobservedTaskException", e.Exception);
+        Logs.WriteErrorAsync("程序发生未观察到的任务异常。", "Application", nameof(App), e.Exception, eventId: "app.task-unobserved")
+            .GetAwaiter()
+            .GetResult();
         e.SetObserved();
     }
 
-    private static void WriteExceptionLog(string source, Exception exception)
-    {
-        try
-        {
-            var path = GetLogPath();
-            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-
-            var builder = new StringBuilder();
-            builder.AppendLine(new string('=', 72));
-            builder.AppendLine(DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
-            builder.AppendLine(source);
-            builder.AppendLine(exception.ToString());
-
-            File.AppendAllText(path, builder.ToString(), Encoding.UTF8);
-        }
-        catch
-        {
-        }
-    }
-
-    private static string GetLogPath()
+    private static string GetLogDirectory()
     {
         return Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "HotspotShare",
-            "logs",
-            "app.log");
+            "logs");
     }
 }

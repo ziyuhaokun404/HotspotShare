@@ -1,0 +1,50 @@
+<Page x:Class="HotspotShare.Pages.AboutPage"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+      xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+      xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+      mc:Ignorable="d"
+      Background="Transparent">
+    <Grid Margin="24">
+        <ui:Card Padding="24">
+            <StackPanel>
+                <TextBlock Style="{StaticResource SectionTitleTextBlockStyle}" Text="HotspotShare" />
+                <TextBlock Margin="0,10,0,0"
+                           Style="{StaticResource BodySecondaryTextBlockStyle}"
+                           Text="Windows 移动热点共享工具，用于配置共享连接、查看已连接设备并排查热点运行状态。" />
+
+                <TextBlock Margin="0,20,0,0"
+                           FontWeight="SemiBold"
+                           Text="系统要求" />
+                <TextBlock Margin="0,8,0,0"
+                           Style="{StaticResource BodySecondaryTextBlockStyle}"
+                           Text="Windows 10 2004+ 或 Windows 11" />
+                <TextBlock Margin="0,4,0,0"
+                           Style="{StaticResource BodySecondaryTextBlockStyle}"
+                           Text="支持移动热点的无线网卡" />
+
+                <TextBlock Margin="0,20,0,0"
+                           FontWeight="SemiBold"
+                           Text="权限说明" />
+                <TextBlock Margin="0,8,0,0"
+                           Style="{StaticResource BodySecondaryTextBlockStyle}"
+                           Text="启动和停止热点时通常需要管理员权限，应用会在需要时请求提权。" />
+
+                <TextBlock Margin="0,20,0,0"
+                           FontWeight="SemiBold"
+                           Text="endpoint 信息说明" />
+                <TextBlock Margin="0,8,0,0"
+                           Style="{StaticResource BodySecondaryTextBlockStyle}"
+                           Text="设备名、IP 和主机名来自 Windows 提供的 best-effort 数据，某些设备可能只显示 MAC 或未分配 IP。" />
+
+                <TextBlock Margin="0,20,0,0"
+                           FontWeight="SemiBold"
+                           Text="页面结构" />
+                <TextBlock Margin="0,8,0,0"
+                           Style="{StaticResource BodySecondaryTextBlockStyle}"
+                           Text="控制台负责热点配置，设备页查看 endpoint，日志页用于排障，关于页集中放说明信息。" />
+            </StackPanel>
+        </ui:Card>
+    </Grid>
+</Page>
