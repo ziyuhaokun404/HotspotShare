@@ -42,3 +42,6 @@ Desktop.ini
 
 ## .NET local tools
 .dotnet/
+
+## Publish artifacts
+artifacts/
