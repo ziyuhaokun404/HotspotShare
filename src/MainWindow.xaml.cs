@@ -3,7 +3,6 @@ using HotspotShare.Pages;
 using HotspotShare.ViewModels;
 using System.ComponentModel;
 using System.Diagnostics;
-using System.Drawing;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
