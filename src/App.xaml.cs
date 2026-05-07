@@ -1,7 +1,7 @@
+using HotspotShare.Services;
 using System.IO;
 using System.Windows;
 using System.Windows.Threading;
-using HotspotShare.Services;
 using Wpf.Ui.Appearance;
 using Application = System.Windows.Application;
 using MessageBox = System.Windows.MessageBox;
