@@ -80,6 +80,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     protected override void OnClosed(EventArgs e)
     {
         _viewModel.PropertyChanged -= ViewModelOnPropertyChanged;
+        _viewModel.Dispose();
 
         if (_notifyIcon is not null)
         {

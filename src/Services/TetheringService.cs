@@ -8,6 +8,7 @@ namespace HotspotShare.Services;
 internal sealed class TetheringService
 {
     private const string WindowsPowerShellPath = @"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe";
+    private const string HotspotNatName = "HotspotShare-MobileHotspot";
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -309,6 +310,40 @@ function New-Status {
         };
     }
 
+    public async Task<NetworkSharingResult> ConfigureNatAsync(string sourceAdapterId, CancellationToken cancellationToken = default)
+    {
+        var response = await ExecuteAsync<NetworkSharingStatus>(
+            BuildConfigureNatScript(),
+            new Dictionary<string, string?>
+            {
+                ["HOTSPOT_SOURCE_ADAPTER_ID"] = sourceAdapterId,
+                ["HOTSPOT_NAT_NAME"] = HotspotNatName
+            },
+            cancellationToken);
+
+        return new NetworkSharingResult
+        {
+            Success = response.Success,
+            Message = response.Message,
+            Status = response.Data
+        };
+    }
+
+    public async Task<NetworkSharingResult> RemoveNatAsync(CancellationToken cancellationToken = default)
+    {
+        var response = await ExecuteAsync<NetworkSharingStatus>(
+            BuildRemoveNatScript(),
+            new Dictionary<string, string?> { ["HOTSPOT_NAT_NAME"] = HotspotNatName },
+            cancellationToken);
+
+        return new NetworkSharingResult
+        {
+            Success = response.Success,
+            Message = response.Message,
+            Status = response.Data
+        };
+    }
+
     private static async Task<ScriptResponse<T>> ExecuteAsync<T>(
         string script,
         IReadOnlyDictionary<string, string?>? environment,
@@ -541,6 +576,230 @@ try {
     if (-not $success) {
         exit 1
     }
+}
+catch {
+    New-Response $false $_.Exception.Message $null | ConvertTo-Json -Depth 6 -Compress
+    exit 1
+}
+""";
+    }
+
+    private static string BuildConfigureNatScript()
+    {
+        return """
+$ErrorActionPreference = 'Stop'
+
+function New-Response {
+    param(
+        [bool] $Success,
+        [string] $Message,
+        $Data = $null
+    )
+
+    [pscustomobject]@{
+        Success = $Success
+        Message = $Message
+        Data = $Data
+    }
+}
+
+function Get-NetworkPrefix {
+    param(
+        [string] $Address,
+        [int] $PrefixLength
+    )
+
+    $bytes = [System.Net.IPAddress]::Parse($Address).GetAddressBytes()
+    $remaining = $PrefixLength
+
+    for ($index = 0; $index -lt $bytes.Length; $index++) {
+        if ($remaining -ge 8) {
+            $remaining -= 8
+            continue
+        }
+
+        if ($remaining -le 0) {
+            $bytes[$index] = 0
+            continue
+        }
+
+        $mask = [byte]((0xFF -shl (8 - $remaining)) -band 0xFF)
+        $bytes[$index] = [byte]($bytes[$index] -band $mask)
+        $remaining = 0
+    }
+
+    "$($bytes[0]).$($bytes[1]).$($bytes[2]).$($bytes[3])/$PrefixLength"
+}
+
+function Resolve-AdapterById {
+    param([string] $AdapterId)
+
+    $normalizedAdapterId = $AdapterId.Trim('{}')
+    $adapter = Get-NetAdapter -IncludeHidden | Where-Object {
+        $_.InterfaceGuid.ToString().Trim('{}').Equals($normalizedAdapterId, [System.StringComparison]::OrdinalIgnoreCase)
+    } | Select-Object -First 1
+
+    if ($null -eq $adapter) {
+        throw "找不到适配器 [$AdapterId]。"
+    }
+
+    return $adapter
+}
+
+function Resolve-PreferredIPv4 {
+    param($Adapter)
+
+    $address = Get-NetIPAddress -InterfaceIndex $Adapter.ifIndex -AddressFamily IPv4 -ErrorAction Stop |
+        Where-Object {
+            $_.AddressState -eq 'Preferred' -and
+            $_.IPAddress -notlike '169.254.*' -and
+            $_.IPAddress -ne '127.0.0.1'
+        } |
+        Sort-Object PrefixLength -Descending |
+        Select-Object -First 1
+
+    if ($null -eq $address) {
+        throw "适配器 [$($Adapter.Name)] 没有可用于 NAT 的 IPv4 地址。"
+    }
+
+    return $address
+}
+
+function Resolve-DefaultGateway {
+    param($Adapter)
+
+    $route = Get-NetRoute -InterfaceIndex $Adapter.ifIndex -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue |
+        Sort-Object RouteMetric |
+        Select-Object -First 1
+
+    if ($null -eq $route) {
+        return ''
+    }
+
+    return [string]$route.NextHop
+}
+
+function Resolve-HotspotInternalIPv4 {
+    for ($attempt = 0; $attempt -lt 12; $attempt++) {
+        $address = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction Stop |
+            Where-Object {
+                $_.AddressState -eq 'Preferred' -and
+                $_.IPAddress -eq '192.168.137.1'
+            } |
+            Select-Object -First 1
+
+        if ($null -eq $address) {
+            $address = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction Stop |
+                Where-Object {
+                    $_.AddressState -eq 'Preferred' -and
+                    $_.IPAddress -like '192.168.137.*'
+                } |
+                Select-Object -First 1
+        }
+
+        if ($null -ne $address) {
+            return $address
+        }
+
+        Start-Sleep -Milliseconds 500
+    }
+
+    throw '未找到移动热点私网地址。请先启动移动热点，等待客户端网络 192.168.137.1/24 创建完成。'
+}
+
+try {
+    $natName = $env:HOTSPOT_NAT_NAME
+    $sourceAdapterId = $env:HOTSPOT_SOURCE_ADAPTER_ID
+
+    if ([string]::IsNullOrWhiteSpace($natName)) {
+        throw 'NAT 名称不能为空。'
+    }
+
+    if ([string]::IsNullOrWhiteSpace($sourceAdapterId)) {
+        throw '共享源适配器 ID 不能为空。'
+    }
+
+    $sourceAdapter = Resolve-AdapterById $sourceAdapterId
+    $sourceAddress = Resolve-PreferredIPv4 $sourceAdapter
+    $sourceGateway = Resolve-DefaultGateway $sourceAdapter
+    $internalAddress = Resolve-HotspotInternalIPv4
+    $internalAdapter = Get-NetAdapter -IncludeHidden -InterfaceIndex $internalAddress.InterfaceIndex -ErrorAction Stop
+
+    $internalPrefix = Get-NetworkPrefix $internalAddress.IPAddress $internalAddress.PrefixLength
+
+    Get-NetNat -Name $natName -ErrorAction SilentlyContinue | Remove-NetNat -Confirm:$false -ErrorAction Stop
+
+    Set-NetIPInterface -InterfaceIndex $internalAddress.InterfaceIndex -AddressFamily IPv4 -Forwarding Enabled -ErrorAction Stop
+    Set-NetIPInterface -InterfaceIndex $sourceAdapter.ifIndex -AddressFamily IPv4 -Forwarding Enabled -ErrorAction Stop
+    Set-NetIPInterface -InterfaceIndex $sourceAdapter.ifIndex -AddressFamily IPv4 -InterfaceMetric 1 -ErrorAction Stop
+
+    New-NetNat `
+        -Name $natName `
+        -InternalIPInterfaceAddressPrefix $internalPrefix `
+        -ErrorAction Stop | Out-Null
+
+    $sourceInterface = Get-NetIPInterface -InterfaceIndex $sourceAdapter.ifIndex -AddressFamily IPv4 -ErrorAction Stop
+
+    $status = [pscustomobject]@{
+        NatName = $natName
+        SourceAdapterId = $sourceAdapterId
+        SourceInterfaceAlias = $sourceAdapter.Name
+        SourceGateway = $sourceGateway
+        InternalInterfaceAlias = $internalAdapter.Name
+        InternalPrefix = $internalPrefix
+        SourceInterfaceMetric = $sourceInterface.InterfaceMetric
+    }
+
+    New-Response $true "已通过 [$($sourceAdapter.Name)] 为移动热点配置 WinNAT 转发。" $status | ConvertTo-Json -Depth 6 -Compress
+}
+catch {
+    New-Response $false $_.Exception.Message $null | ConvertTo-Json -Depth 6 -Compress
+    exit 1
+}
+""";
+    }
+
+    private static string BuildRemoveNatScript()
+    {
+        return """
+$ErrorActionPreference = 'Stop'
+
+function New-Response {
+    param(
+        [bool] $Success,
+        [string] $Message,
+        $Data = $null
+    )
+
+    [pscustomobject]@{
+        Success = $Success
+        Message = $Message
+        Data = $Data
+    }
+}
+
+try {
+    $natName = $env:HOTSPOT_NAT_NAME
+    if ([string]::IsNullOrWhiteSpace($natName)) {
+        throw 'NAT 名称不能为空。'
+    }
+
+    $existing = Get-NetNat -Name $natName -ErrorAction SilentlyContinue
+    if ($null -ne $existing) {
+        $existing | Remove-NetNat -Confirm:$false -ErrorAction Stop
+    }
+
+    $status = [pscustomobject]@{
+        NatName = $natName
+        SourceAdapterId = ''
+        SourceInterfaceAlias = ''
+        SourceGateway = ''
+        InternalInterfaceAlias = ''
+        InternalPrefix = ''
+        SourceInterfaceMetric = $null
+    }
+
+    New-Response $true '已清理 HotspotShare 创建的 WinNAT 转发。' $status | ConvertTo-Json -Depth 6 -Compress
 }
 catch {
     New-Response $false $_.Exception.Message $null | ConvertTo-Json -Depth 6 -Compress
