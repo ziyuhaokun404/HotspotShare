@@ -14,12 +14,12 @@ namespace HotspotShare.ViewModels;
 
 internal partial class MainWindowViewModel : ObservableObject
 {
-    private readonly DeviceAliasStore _deviceAliasStore = new();
     private readonly AppLogService _logService =
         System.Windows.Application.Current is App
             ? App.Logs
             : new AppLogService(Path.Combine(Path.GetTempPath(), "HotspotShare", "design-logs"));
-    private readonly TetheringService _tetheringService = new();
+    private readonly DeviceAliasStore _deviceAliasStore;
+    private readonly TetheringService _tetheringService;
     private readonly Dictionary<string, TetheringClientInfo> _clientCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _deviceAliases;
     private static readonly TimeSpan ClientDisconnectRetention = TimeSpan.FromSeconds(60);
@@ -145,6 +145,8 @@ internal partial class MainWindowViewModel : ObservableObject
 
     public MainWindowViewModel()
     {
+        _deviceAliasStore = new DeviceAliasStore(_logService);
+        _tetheringService = new TetheringService(_logService);
         _deviceAliases = _deviceAliasStore.Load();
         SelectedNavigationItem = NavigationItems.FirstOrDefault();
         CurrentPageTag = SelectedNavigationItem?.PageTag ?? "dashboard";
@@ -181,10 +183,13 @@ internal partial class MainWindowViewModel : ObservableObject
 
     public async Task InitializeAsync(PendingPrivilegedAction? pendingAction)
     {
+        WriteInformationLog("应用程序正在初始化。", category: "Application", eventId: "app.init.begin",
+            details: pendingAction is not null ? $"PendingAction={pendingAction.ActionName}" : null);
         UpdateAdministratorHint();
         EnsureDefaultInputs();
         await RefreshProfilesAsync(preserveSelection: false, pendingAdapterId: pendingAction?.AdapterId);
         await ExecutePendingActionAsync(pendingAction);
+        WriteInformationLog("应用程序初始化完成。", category: "Application", eventId: "app.init.complete");
     }
 
     [RelayCommand]
@@ -193,6 +198,7 @@ internal partial class MainWindowViewModel : ObservableObject
         IsDarkTheme = !IsDarkTheme;
         ApplicationThemeManager.Apply(IsDarkTheme ? ApplicationTheme.Dark : ApplicationTheme.Light);
         ThemeIcon = IsDarkTheme ? SymbolRegular.WeatherSunny20 : SymbolRegular.WeatherMoon20;
+        WriteDebugLog($"已切换主题为 {(IsDarkTheme ? "深色" : "浅色")} 模式。", category: "UI", eventId: "ui.theme.toggled");
     }
 
     partial void OnIsAutoRefreshEnabledChanged(bool value)
@@ -212,6 +218,7 @@ internal partial class MainWindowViewModel : ObservableObject
         StopAutoRefresh();
         _autoRefreshCts = new CancellationTokenSource();
         _ = AutoRefreshLoopAsync(_autoRefreshCts.Token);
+        WriteDebugLog("已开启自动刷新（每 5 秒）。", category: "Status", eventId: "status.auto-refresh.started");
     }
 
     private void StopAutoRefresh()
@@ -219,6 +226,7 @@ internal partial class MainWindowViewModel : ObservableObject
         _autoRefreshCts?.Cancel();
         _autoRefreshCts?.Dispose();
         _autoRefreshCts = null;
+        WriteDebugLog("已停止自动刷新。", category: "Status", eventId: "status.auto-refresh.stopped");
     }
 
     private async Task AutoRefreshLoopAsync(CancellationToken cancellationToken)
@@ -285,7 +293,7 @@ internal partial class MainWindowViewModel : ObservableObject
     [RelayCommand]
     private void ClearLog()
     {
-        _logService.ClearCurrentLogAsync().GetAwaiter().GetResult();
+        _logService.ClearCurrentLog();
         SetResultState("日志已清空", "已清空执行日志。", InfoBarSeverity.Informational);
         OnPropertyChanged(nameof(LogText));
     }
@@ -372,7 +380,7 @@ internal partial class MainWindowViewModel : ObservableObject
         client.DisplayName = ResolveDisplayName(client.Alias, client.DetectedName);
         PersistAliases();
         SetResultState("备注名已保存", $"已更新 {client.MacAddress} 的备注名。", InfoBarSeverity.Success);
-        AppendLog($"已更新设备备注名：{client.MacAddress} -> {client.DisplayName}");
+        WriteInformationLog($"已更新设备备注名：{client.MacAddress} -> {client.DisplayName}", category: "Device", eventId: "device.alias.saved", details: $"MAC={client.MacAddress}; Alias={client.DisplayName}");
     }
 
     [RelayCommand]
@@ -388,7 +396,7 @@ internal partial class MainWindowViewModel : ObservableObject
         client.DisplayName = ResolveDisplayName(client.Alias, client.DetectedName);
         PersistAliases();
         SetResultState("备注名已清除", $"已恢复 {client.MacAddress} 的自动识别名称。", InfoBarSeverity.Informational);
-        AppendLog($"已清除设备备注名：{client.MacAddress}");
+        WriteInformationLog($"已清除设备备注名：{client.MacAddress}", category: "Device", eventId: "device.alias.cleared", details: $"MAC={client.MacAddress}");
     }
 
     private async Task StartSharingCoreAsync(TetheringConnectionProfile profile, string ssid, string passphrase, string band)
@@ -515,7 +523,7 @@ internal partial class MainWindowViewModel : ObservableObject
             UpdateProfileHint(null);
             ClearStatus();
             SetResultState("未发现可共享连接", "系统中没有发现可用于热点共享的连接。", InfoBarSeverity.Warning);
-            AppendLog("系统中没有发现可用于热点共享的连接。");
+            WriteWarningLog("系统中没有发现可用于热点共享的连接。", category: "Profiles", eventId: "profiles.refresh.empty");
             SetBusy(false, "就绪。");
             return;
         }
@@ -738,11 +746,6 @@ internal partial class MainWindowViewModel : ObservableObject
         BusyMessage = message;
     }
 
-    private void AppendLog(string message)
-    {
-        WriteInformationLog(message, category: "Hotspot", eventId: "hotspot.info");
-    }
-
     private void ClearStatus()
     {
         SelectedProfileValue = "-";
@@ -959,6 +962,7 @@ internal partial class MainWindowViewModel : ObservableObject
             ? "当前进程已具备管理员权限，可以直接修改热点共享与系统网络配置。"
             : "当前不是管理员身份。程序可以正常打开和查看状态，但在启动或停止热点时会提示你重新以管理员身份启动。";
         AdminSeverity = isAdmin ? InfoBarSeverity.Success : InfoBarSeverity.Warning;
+        WriteDebugLog($"管理员权限状态：{(isAdmin ? "是" : "否")}", category: "Application", eventId: "app.admin-status");
     }
 
     private void UpdateProfileHint(TetheringConnectionProfile? profile)
@@ -1002,18 +1006,21 @@ internal partial class MainWindowViewModel : ObservableObject
     {
         if (string.IsNullOrWhiteSpace(ssid))
         {
+            WriteWarningLog("输入校验失败：热点名称为空。", category: "Validation", eventId: "validation.ssid-empty");
             RequestAlert?.Invoke("输入不完整", "热点名称不能为空。");
             return false;
         }
 
         if (ssid.Length > 32)
         {
+            WriteWarningLog($"输入校验失败：热点名称过长（{ssid.Length} > 32）。", category: "Validation", eventId: "validation.ssid-too-long");
             RequestAlert?.Invoke("输入不合法", "热点名称不能超过 32 个字符。");
             return false;
         }
 
         if (passphrase.Length is < 8 or > 63)
         {
+            WriteWarningLog($"输入校验失败：密码长度不合法（{passphrase.Length}，要求 8-63）。", category: "Validation", eventId: "validation.passphrase-invalid");
             RequestAlert?.Invoke("输入不合法", "热点密码长度必须在 8 到 63 个字符之间。");
             return false;
         }
@@ -1062,33 +1069,25 @@ internal partial class MainWindowViewModel : ObservableObject
 
     private void WriteInformationLog(string message, string category, string? eventId = null, string? details = null)
     {
-        _logService.WriteInformationAsync(message, category, nameof(MainWindowViewModel), details, eventId)
-            .GetAwaiter()
-            .GetResult();
+        _logService.WriteInformation(message, category, nameof(MainWindowViewModel), details, eventId);
         OnPropertyChanged(nameof(LogText));
     }
 
     private void WriteDebugLog(string message, string category, string? eventId = null, string? details = null)
     {
-        _logService.WriteDebugAsync(message, category, nameof(MainWindowViewModel), details, eventId)
-            .GetAwaiter()
-            .GetResult();
+        _logService.WriteDebug(message, category, nameof(MainWindowViewModel), details, eventId);
         OnPropertyChanged(nameof(LogText));
     }
 
     private void WriteWarningLog(string message, string category, string? eventId = null, string? details = null)
     {
-        _logService.WriteWarningAsync(message, category, nameof(MainWindowViewModel), details, eventId)
-            .GetAwaiter()
-            .GetResult();
+        _logService.WriteWarning(message, category, nameof(MainWindowViewModel), details, eventId);
         OnPropertyChanged(nameof(LogText));
     }
 
     private void WriteErrorLog(string message, string category, Exception? exception = null, string? eventId = null, string? details = null)
     {
-        _logService.WriteErrorAsync(message, category, nameof(MainWindowViewModel), exception, details, eventId)
-            .GetAwaiter()
-            .GetResult();
+        _logService.WriteError(message, category, nameof(MainWindowViewModel), exception, details, eventId);
         OnPropertyChanged(nameof(LogText));
     }
 

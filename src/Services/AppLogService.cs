@@ -1,26 +1,24 @@
 using HotspotShare.Models;
-using Serilog;
-using Serilog.Core;
-using Serilog.Events;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Text;
-using System.Text.Json;
 
 namespace HotspotShare.Services;
 
+internal enum LogLevel
+{
+    Debug,
+    Information,
+    Warning,
+    Error
+}
+
 internal sealed class AppLogService : IDisposable
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        WriteIndented = false
-    };
-
     private readonly string _logDirectory;
     private readonly int _memoryLimit;
     private readonly int _retentionDays;
     private readonly object _syncRoot = new();
-    private Logger? _logger;
 
     public ObservableCollection<AppLogEntry> Entries { get; } = [];
 
@@ -31,47 +29,39 @@ internal sealed class AppLogService : IDisposable
         _retentionDays = retentionDays;
     }
 
-    public async Task InitializeAsync()
+    public void Initialize()
     {
         Directory.CreateDirectory(_logDirectory);
         CleanupExpiredLogs();
         LoadRecentEntries();
-
-        _logger?.Dispose();
-        _logger = new LoggerConfiguration()
-            .MinimumLevel.Debug()
-            .WriteTo.Sink(new AppLogSink(this))
-            .CreateLogger();
-
-        await Task.CompletedTask;
     }
 
     public string GetCurrentLogFilePath()
     {
-        return Path.Combine(_logDirectory, $"hotspotshare-{DateTime.Now:yyyyMMdd}.jsonl");
+        return Path.Combine(_logDirectory, $"hotspotshare-{DateTime.Now:yyyyMMdd}.log");
     }
 
-    public async Task WriteInformationAsync(string message, string category, string? source = null, string? details = null, string? eventId = null)
+    public void WriteInformation(string message, string category, string? source = null, string? details = null, string? eventId = null)
     {
-        await WriteAsync(LogEventLevel.Information, message, category, source, details, eventId, null);
+        Write(LogLevel.Information, message, category, source, details, eventId, null);
     }
 
-    public async Task WriteDebugAsync(string message, string category, string? source = null, string? details = null, string? eventId = null)
+    public void WriteDebug(string message, string category, string? source = null, string? details = null, string? eventId = null)
     {
-        await WriteAsync(LogEventLevel.Debug, message, category, source, details, eventId, null);
+        Write(LogLevel.Debug, message, category, source, details, eventId, null);
     }
 
-    public async Task WriteWarningAsync(string message, string category, string? source = null, string? details = null, string? eventId = null)
+    public void WriteWarning(string message, string category, string? source = null, string? details = null, string? eventId = null)
     {
-        await WriteAsync(LogEventLevel.Warning, message, category, source, details, eventId, null);
+        Write(LogLevel.Warning, message, category, source, details, eventId, null);
     }
 
-    public async Task WriteErrorAsync(string message, string category, string? source = null, Exception? exception = null, string? details = null, string? eventId = null)
+    public void WriteError(string message, string category, string? source = null, Exception? exception = null, string? details = null, string? eventId = null)
     {
-        await WriteAsync(LogEventLevel.Error, message, category, source, details, eventId, exception);
+        Write(LogLevel.Error, message, category, source, details, eventId, exception);
     }
 
-    public async Task ClearCurrentLogAsync()
+    public void ClearCurrentLog()
     {
         lock (_syncRoot)
         {
@@ -83,7 +73,7 @@ internal sealed class AppLogService : IDisposable
             }
         }
 
-        await WriteInformationAsync("日志已清空。", "Logging", nameof(AppLogService), eventId: "log.cleared");
+        WriteInformation("日志已清空。", "Logging", nameof(AppLogService), eventId: "log.cleared");
     }
 
     public string BuildTextSnapshot()
@@ -93,60 +83,76 @@ internal sealed class AppLogService : IDisposable
 
     public void Dispose()
     {
-        _logger?.Dispose();
-        _logger = null;
     }
 
-    private Task WriteAsync(LogEventLevel level, string message, string category, string? source, string? details, string? eventId, Exception? exception)
+    private void Write(LogLevel level, string message, string category, string? source, string? details, string? eventId, Exception? exception)
     {
-        EnsureLogger();
-
-        _logger!
-            .ForContext("Category", category)
-            .ForContext("Source", source)
-            .ForContext("Details", details)
-            .ForContext("EventId", eventId)
-            .Write(level, exception, "{LogMessage}", message);
-
-        return Task.CompletedTask;
-    }
-
-    private void EnsureLogger()
-    {
-        if (_logger is not null)
-        {
-            return;
-        }
-
-        _logger = new LoggerConfiguration()
-            .MinimumLevel.Debug()
-            .WriteTo.Sink(new AppLogSink(this))
-            .CreateLogger();
-    }
-
-    private void Emit(LogEvent logEvent)
-    {
+        var timestamp = DateTime.Now;
         var entry = new AppLogEntry
         {
-            Timestamp = logEvent.Timestamp.LocalDateTime,
-            Level = logEvent.Level.ToString(),
-            Category = GetScalarString(logEvent, "Category") ?? "General",
-            EventId = GetScalarString(logEvent, "EventId"),
-            Message = logEvent.Properties.TryGetValue("LogMessage", out var rawMessage)
-                ? GetScalarValue(rawMessage) ?? logEvent.RenderMessage()
-                : logEvent.RenderMessage(),
-            Details = GetScalarString(logEvent, "Details"),
-            Exception = logEvent.Exception?.ToString(),
-            Source = GetScalarString(logEvent, "Source")
+            Timestamp = timestamp,
+            Level = level.ToString(),
+            Category = category,
+            EventId = eventId,
+            Message = message,
+            Details = details,
+            Exception = exception?.ToString(),
+            Source = source
         };
+
+        var line = FormatLogLine(timestamp, level, category, source, eventId, message, details, exception);
 
         lock (_syncRoot)
         {
             Directory.CreateDirectory(_logDirectory);
-            File.AppendAllText(GetCurrentLogFilePath(), JsonSerializer.Serialize(entry, JsonOptions) + Environment.NewLine, Encoding.UTF8);
+            File.AppendAllText(GetCurrentLogFilePath(), line + Environment.NewLine);
         }
 
         AppendEntry(entry);
+    }
+
+    private static string FormatLogLine(DateTime timestamp, LogLevel level, string category, string? source, string? eventId, string message, string? details, Exception? exception)
+    {
+        // [2026-06-16 09:33:36] [INFO ] [Application] [app.startup] 应用程序启动。
+        var sb = new StringBuilder();
+        sb.Append('[');
+        sb.Append(timestamp.ToString("yyyy-MM-dd HH:mm:ss"));
+        sb.Append("] [");
+        sb.Append(level.ToString().ToUpperInvariant().PadRight(5));
+        sb.Append("] [");
+        sb.Append(category);
+        sb.Append(']');
+
+        if (!string.IsNullOrWhiteSpace(source))
+        {
+            sb.Append(" [");
+            sb.Append(source);
+            sb.Append(']');
+        }
+
+        if (!string.IsNullOrWhiteSpace(eventId))
+        {
+            sb.Append(" {");
+            sb.Append(eventId);
+            sb.Append('}');
+        }
+
+        sb.Append(' ');
+        sb.Append(message);
+
+        if (!string.IsNullOrWhiteSpace(details))
+        {
+            sb.Append(" | ");
+            sb.Append(details);
+        }
+
+        if (exception is not null)
+        {
+            sb.AppendLine();
+            sb.Append(exception.ToString());
+        }
+
+        return sb.ToString();
     }
 
     private void AppendEntry(AppLogEntry entry)
@@ -177,7 +183,7 @@ internal sealed class AppLogService : IDisposable
         }
 
         var threshold = DateTime.Today.AddDays(-_retentionDays);
-        foreach (var path in Directory.EnumerateFiles(_logDirectory, "hotspotshare-*.jsonl"))
+        foreach (var path in Directory.EnumerateFiles(_logDirectory, "hotspotshare-*.log"))
         {
             try
             {
@@ -203,7 +209,7 @@ internal sealed class AppLogService : IDisposable
         }
 
         var recentEntries = Directory
-            .EnumerateFiles(_logDirectory, "hotspotshare-*.jsonl")
+            .EnumerateFiles(_logDirectory, "hotspotshare-*.log")
             .OrderByDescending(path => path, StringComparer.OrdinalIgnoreCase)
             .SelectMany(ReadEntries)
             .OrderByDescending(entry => entry.Timestamp)
@@ -225,15 +231,7 @@ internal sealed class AppLogService : IDisposable
                 continue;
             }
 
-            AppLogEntry? entry = null;
-            try
-            {
-                entry = JsonSerializer.Deserialize<AppLogEntry>(line, JsonOptions);
-            }
-            catch
-            {
-            }
-
+            var entry = ParseLogLine(line);
             if (entry is not null)
             {
                 yield return entry;
@@ -241,29 +239,109 @@ internal sealed class AppLogService : IDisposable
         }
     }
 
-    private static string? GetScalarString(LogEvent logEvent, string propertyName)
+    private static AppLogEntry? ParseLogLine(string line)
     {
-        return logEvent.Properties.TryGetValue(propertyName, out var propertyValue)
-            ? GetScalarValue(propertyValue)
-            : null;
-    }
-
-    private static string? GetScalarValue(LogEventPropertyValue propertyValue)
-    {
-        return propertyValue switch
+        // [2026-06-16 09:33:36] [INFO ] [Category] [Source] {eventId} Message | Details
+        try
         {
-            ScalarValue { Value: null } => null,
-            ScalarValue { Value: string text } => text,
-            ScalarValue scalar => scalar.Value?.ToString(),
-            _ => propertyValue.ToString()
-        };
-    }
+            if (!line.StartsWith('['))
+            {
+                return null;
+            }
 
-    private sealed class AppLogSink(AppLogService owner) : ILogEventSink
-    {
-        public void Emit(LogEvent logEvent)
+            var pos = 0;
+
+            // Timestamp: [2026-06-16 09:33:36]
+            var tsEnd = line.IndexOf(']', pos);
+            if (tsEnd < 0) return null;
+            var tsStr = line.Substring(1, tsEnd - 1);
+            if (!DateTime.TryParse(tsStr, out var timestamp)) return null;
+            pos = tsEnd + 2; // skip "] "
+
+            // Level: [INFO ]
+            if (pos >= line.Length || line[pos] != '[') return null;
+            var levelEnd = line.IndexOf(']', pos);
+            if (levelEnd < 0) return null;
+            var level = line.Substring(pos + 1, levelEnd - pos - 1).Trim();
+            pos = levelEnd + 2;
+
+            // Category: [Category]
+            if (pos >= line.Length || line[pos] != '[') return null;
+            var catEnd = line.IndexOf(']', pos);
+            if (catEnd < 0) return null;
+            var category = line.Substring(pos + 1, catEnd - pos - 1);
+            pos = catEnd + 1;
+
+            string? source = null;
+            string? eventId = null;
+
+            // Optional: [Source]
+            if (pos < line.Length && line[pos] == ' ')
+            {
+                pos++;
+                if (pos < line.Length && line[pos] == '[')
+                {
+                    var srcEnd = line.IndexOf(']', pos);
+                    if (srcEnd > pos)
+                    {
+                        source = line.Substring(pos + 1, srcEnd - pos - 1);
+                        pos = srcEnd + 1;
+                    }
+                }
+            }
+
+            // Optional: {eventId}
+            if (pos < line.Length && line[pos] == ' ')
+            {
+                pos++;
+                if (pos < line.Length && line[pos] == '{')
+                {
+                    var idEnd = line.IndexOf('}', pos);
+                    if (idEnd > pos)
+                    {
+                        eventId = line.Substring(pos + 1, idEnd - pos - 1);
+                        pos = idEnd + 1;
+                    }
+                }
+            }
+
+            // Message (rest of line, split by " | " for details)
+            string message;
+            string? details = null;
+            string? exception = null;
+
+            if (pos < line.Length && line[pos] == ' ')
+            {
+                pos++;
+            }
+
+            var remaining = line[pos..];
+            var detailsSep = remaining.IndexOf(" | ");
+            if (detailsSep >= 0)
+            {
+                message = remaining[..detailsSep];
+                details = remaining[(detailsSep + 3)..];
+            }
+            else
+            {
+                message = remaining;
+            }
+
+            return new AppLogEntry
+            {
+                Timestamp = timestamp,
+                Level = level,
+                Category = category,
+                EventId = eventId,
+                Message = message,
+                Details = details,
+                Exception = exception,
+                Source = source
+            };
+        }
+        catch
         {
-            owner.Emit(logEvent);
+            return null;
         }
     }
 }

@@ -1,4 +1,0 @@
-<Solution>
-  <Project Path="src\HotspotShare.csproj" />
-  <Project Path="tests\HotspotShare.Tests\HotspotShare.Tests.csproj" />
-</Solution>

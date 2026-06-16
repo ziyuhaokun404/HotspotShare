@@ -7,7 +7,15 @@ namespace HotspotShare.Services;
 
 internal sealed class TetheringService
 {
+    private const string Category = "Tethering";
     private const string WindowsPowerShellPath = @"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe";
+
+    private readonly AppLogService _log;
+
+    public TetheringService(AppLogService log)
+    {
+        _log = log;
+    }
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -249,17 +257,22 @@ function New-Status {
 
     public async Task<IReadOnlyList<TetheringConnectionProfile>> GetProfilesAsync(CancellationToken cancellationToken = default)
     {
+        _log.WriteDebug("正在读取系统可共享连接列表。", Category, eventId: "tethering.profiles.begin");
         var response = await ExecuteAsync<List<TetheringConnectionProfile>>(BuildListProfilesScript(), null, cancellationToken);
         if (!response.Success)
         {
+            _log.WriteError("读取可共享连接失败。", Category, exception: null, details: response.Message, eventId: "tethering.profiles.failed");
             throw new InvalidOperationException(response.Message);
         }
 
+        var count = response.Data?.Count ?? 0;
+        _log.WriteDebug($"已获取 {count} 个可共享连接。", Category, eventId: "tethering.profiles.success");
         return response.Data ?? [];
     }
 
     public async Task<TetheringStatus> GetStatusAsync(string adapterId, CancellationToken cancellationToken = default)
     {
+        _log.WriteDebug($"正在读取热点状态：{adapterId}", Category, eventId: "tethering.status.begin", details: $"AdapterId={adapterId}");
         var response = await ExecuteAsync<TetheringStatus>(
             BuildStatusScript(),
             new Dictionary<string, string?> { ["HOTSPOT_ADAPTER_ID"] = adapterId },
@@ -267,14 +280,17 @@ function New-Status {
 
         if (!response.Success || response.Data is null)
         {
+            _log.WriteError("读取热点状态失败。", Category, exception: null, details: response.Message, eventId: "tethering.status.failed");
             throw new InvalidOperationException(response.Message);
         }
 
+        _log.WriteDebug($"热点状态：State={response.Data.State}, Clients={response.Data.ClientCount}", Category, eventId: "tethering.status.success");
         return response.Data;
     }
 
     public async Task<TetheringActionResult> StartHotspotAsync(string adapterId, string ssid, string passphrase, string band = "Auto", CancellationToken cancellationToken = default)
     {
+        _log.WriteInformation("正在启动热点...", Category, eventId: "tethering.start.begin", details: $"AdapterId={adapterId}; SSID={ssid}; Band={band}");
         var response = await ExecuteAsync<TetheringStatus>(
             BuildStartScript(),
             new Dictionary<string, string?>
@@ -286,6 +302,15 @@ function New-Status {
             },
             cancellationToken);
 
+        if (response.Success)
+        {
+            _log.WriteInformation("热点启动成功。", Category, eventId: "tethering.start.success", details: $"State={response.Data?.State}");
+        }
+        else
+        {
+            _log.WriteWarning($"热点启动失败：{response.Message}", Category, eventId: "tethering.start.failed");
+        }
+
         return new TetheringActionResult
         {
             Success = response.Success,
@@ -296,10 +321,20 @@ function New-Status {
 
     public async Task<TetheringActionResult> StopHotspotAsync(string adapterId, CancellationToken cancellationToken = default)
     {
+        _log.WriteInformation("正在停止热点...", Category, eventId: "tethering.stop.begin", details: $"AdapterId={adapterId}");
         var response = await ExecuteAsync<TetheringStatus>(
             BuildStopScript(),
             new Dictionary<string, string?> { ["HOTSPOT_ADAPTER_ID"] = adapterId },
             cancellationToken);
+
+        if (response.Success)
+        {
+            _log.WriteInformation("热点已停止。", Category, eventId: "tethering.stop.success");
+        }
+        else
+        {
+            _log.WriteWarning($"热点停止失败：{response.Message}", Category, eventId: "tethering.stop.failed");
+        }
 
         return new TetheringActionResult
         {
@@ -309,7 +344,7 @@ function New-Status {
         };
     }
 
-    private static async Task<ScriptResponse<T>> ExecuteAsync<T>(
+    private async Task<ScriptResponse<T>> ExecuteAsync<T>(
         string script,
         IReadOnlyDictionary<string, string?>? environment,
         CancellationToken cancellationToken)
@@ -335,6 +370,7 @@ function New-Status {
             }
         }
 
+        _log.WriteDebug("正在启动 PowerShell 进程。", Category, eventId: "tethering.ps.start");
         process.Start();
 
         var stdoutTask = process.StandardOutput.ReadToEndAsync();
@@ -353,6 +389,10 @@ function New-Status {
         var stdout = (await stdoutTask).Trim();
         var stderr = (await stderrTask).Trim();
 
+        var hasStderr = !string.IsNullOrWhiteSpace(stderr) && !stderr.Contains("<CLIXML");
+        _log.WriteDebug($"PowerShell 进程已退出，ExitCode={process.ExitCode}。", Category, eventId: "tethering.ps.exit",
+            details: hasStderr ? $"Stderr={stderr}" : null);
+
         if (!string.IsNullOrWhiteSpace(stdout))
         {
             var response = JsonSerializer.Deserialize<ScriptResponse<T>>(stdout, JsonOptions);
@@ -369,9 +409,13 @@ function New-Status {
 
         if (process.ExitCode != 0)
         {
-            throw new InvalidOperationException(string.IsNullOrWhiteSpace(stderr) ? "PowerShell 脚本执行失败。" : stderr);
+            var errorMsg = string.IsNullOrWhiteSpace(stderr) ? "PowerShell 脚本执行失败。" : stderr;
+            _log.WriteError($"PowerShell 脚本执行失败：{errorMsg}", Category, eventId: "tethering.ps.error", details: $"ExitCode={process.ExitCode}");
+            throw new InvalidOperationException(errorMsg);
         }
 
+        _log.WriteWarning("PowerShell 脚本没有返回可解析的 JSON 结果。", Category, eventId: "tethering.ps.no-output",
+            details: $"ExitCode={process.ExitCode}; Stdout={stdout}");
         throw new InvalidOperationException("PowerShell 脚本没有返回可解析的 JSON 结果。");
     }
 

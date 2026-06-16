@@ -20,21 +20,23 @@ public partial class App : Application
 
         base.OnStartup(e);
         Logs = new AppLogService(GetLogDirectory());
-        Logs.InitializeAsync().GetAwaiter().GetResult();
+        Logs.Initialize();
+        Logs.WriteInformation("应用程序启动。", "Application", nameof(App),
+            details: $"Version={System.Reflection.Assembly.GetExecutingAssembly().GetName().Version}; PID={Environment.ProcessId}",
+            eventId: "app.startup");
         ApplicationThemeManager.Apply(ApplicationTheme.Dark);
     }
 
     protected override void OnExit(ExitEventArgs e)
     {
+        Logs.WriteInformation("应用程序退出。", "Application", nameof(App), eventId: "app.exit");
         Logs.Dispose();
         base.OnExit(e);
     }
 
     private void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
     {
-        Logs.WriteErrorAsync("程序发生未处理异常。", "Application", nameof(App), e.Exception, eventId: "app.dispatcher-unhandled")
-            .GetAwaiter()
-            .GetResult();
+        Logs.WriteError("程序发生未处理异常。", "Application", nameof(App), e.Exception, eventId: "app.dispatcher-unhandled");
         MessageBox.Show(
             $"程序发生未处理异常：{e.Exception.Message}{Environment.NewLine}{Environment.NewLine}日志位置：{Logs.GetCurrentLogFilePath()}",
             "HotspotShare",
@@ -47,25 +49,18 @@ public partial class App : Application
     {
         if (e.ExceptionObject is Exception exception)
         {
-            Logs.WriteErrorAsync("程序发生 AppDomain 未处理异常。", "Application", nameof(App), exception, eventId: "app.domain-unhandled")
-                .GetAwaiter()
-                .GetResult();
+            Logs.WriteError("程序发生 AppDomain 未处理异常。", "Application", nameof(App), exception, eventId: "app.domain-unhandled");
         }
     }
 
     private void OnUnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e)
     {
-        Logs.WriteErrorAsync("程序发生未观察到的任务异常。", "Application", nameof(App), e.Exception, eventId: "app.task-unobserved")
-            .GetAwaiter()
-            .GetResult();
+        Logs.WriteError("程序发生未观察到的任务异常。", "Application", nameof(App), e.Exception, eventId: "app.task-unobserved");
         e.SetObserved();
     }
 
     private static string GetLogDirectory()
     {
-        return Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "HotspotShare",
-            "logs");
+        return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "logs");
     }
 }
