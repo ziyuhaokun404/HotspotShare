@@ -203,10 +203,6 @@
                                        Icon="{ui:SymbolIcon Key20}"
                                        Command="{Binding GeneratePasswordCommand}"
                                        IsEnabled="{Binding IsBusy, Converter={StaticResource InverseBooleanConverter}}" />
-                            <CheckBox Margin="4,0,0,0"
-                                      Content="自动刷新"
-                                      VerticalAlignment="Center"
-                                      IsChecked="{Binding IsAutoRefreshEnabled, Mode=TwoWay}" />
                         </WrapPanel>
 
                         <WrapPanel Margin="0,16,0,0">

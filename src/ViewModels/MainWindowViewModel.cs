@@ -12,7 +12,7 @@ using Wpf.Ui.Controls;
 
 namespace HotspotShare.ViewModels;
 
-internal partial class MainWindowViewModel : ObservableObject
+internal partial class MainWindowViewModel : ObservableObject, IDisposable
 {
     private readonly AppLogService _logService =
         System.Windows.Application.Current is App
@@ -123,9 +123,6 @@ internal partial class MainWindowViewModel : ObservableObject
     [ObservableProperty]
     private bool _isHeroStateOn;
 
-    [ObservableProperty]
-    private bool _isAutoRefreshEnabled;
-
     private CancellationTokenSource? _autoRefreshCts;
 
     /// <summary>
@@ -189,6 +186,7 @@ internal partial class MainWindowViewModel : ObservableObject
         EnsureDefaultInputs();
         await RefreshProfilesAsync(preserveSelection: false, pendingAdapterId: pendingAction?.AdapterId);
         await ExecutePendingActionAsync(pendingAction);
+        StartAutoRefresh();
         WriteInformationLog("应用程序初始化完成。", category: "Application", eventId: "app.init.complete");
     }
 
@@ -201,16 +199,9 @@ internal partial class MainWindowViewModel : ObservableObject
         WriteDebugLog($"已切换主题为 {(IsDarkTheme ? "深色" : "浅色")} 模式。", category: "UI", eventId: "ui.theme.toggled");
     }
 
-    partial void OnIsAutoRefreshEnabledChanged(bool value)
+    public void Dispose()
     {
-        if (value)
-        {
-            StartAutoRefresh();
-        }
-        else
-        {
-            StopAutoRefresh();
-        }
+        StopAutoRefresh();
     }
 
     private void StartAutoRefresh()
@@ -410,6 +401,11 @@ internal partial class MainWindowViewModel : ObservableObject
                 eventId: "hotspot.start.begin",
                 details: $"Profile={profile.Name}; AdapterId={profile.AdapterId}; SSID={ssid}; Band={band}");
 
+            if (!await ResetRunningHotspotForSourceSwitchAsync(profile))
+            {
+                return;
+            }
+
             var result = await _tetheringService.StartHotspotAsync(profile.AdapterId, ssid, passphrase, band);
             ApplyResult(result);
 
@@ -425,6 +421,11 @@ internal partial class MainWindowViewModel : ObservableObject
             else
             {
                 await RefreshStatusAsync(profile.AdapterId, syncInputFields: false, announceProgress: false);
+            }
+
+            if (result.Success)
+            {
+                await ConfigureNetworkSharingAsync(profile);
             }
         }
         catch (Exception ex)
@@ -463,6 +464,7 @@ internal partial class MainWindowViewModel : ObservableObject
             if (result.Success && result.Status?.State.Equals("Off", StringComparison.OrdinalIgnoreCase) == true)
             {
                 _activeAdapterId = null;
+                await RemoveConfiguredNatAsync();
             }
         }
         catch (Exception ex)
@@ -550,7 +552,11 @@ internal partial class MainWindowViewModel : ObservableObject
 
             var status = await _tetheringService.GetStatusAsync(adapterId);
             ApplyStatus(status, syncInputFields);
-            SetResultState("状态已同步", "热点状态已更新。", InfoBarSeverity.Informational);
+            if (announceProgress)
+            {
+                SetResultState("状态已同步", "热点状态已更新。", InfoBarSeverity.Informational);
+            }
+
             if (announceProgress)
             {
                 WriteInformationLog(
@@ -657,6 +663,134 @@ internal partial class MainWindowViewModel : ObservableObject
         }
 
         await StopSharingCoreAsync(adapterId);
+    }
+
+    private async Task ConfigureNetworkSharingAsync(TetheringConnectionProfile profile)
+    {
+        var result = await _tetheringService.ConfigureNatAsync(profile.AdapterId);
+        if (result.Success)
+        {
+            var status = result.Status;
+            var message = status is null
+                ? result.Message
+                : $"已为热点私网 {status.InternalPrefix} 创建 NAT，优先出口为 {status.SourceInterfaceAlias}。";
+
+            SetResultState("网络共享已配置", message, InfoBarSeverity.Success);
+            WriteInformationLog(
+                message,
+                category: "Hotspot",
+                eventId: "hotspot.nat.configured",
+                details: status is null
+                    ? null
+                    : $"NatName={status.NatName}; SourceAdapterId={status.SourceAdapterId}; " +
+                      $"Source={status.SourceInterfaceAlias}; SourceGateway={status.SourceGateway}; " +
+                      $"SourceMetric={status.SourceInterfaceMetric}; Internal={status.InternalInterfaceAlias}; " +
+                      $"InternalPrefix={status.InternalPrefix}");
+            return;
+        }
+
+        SetResultState("网络转发未完成", result.Message, InfoBarSeverity.Error);
+        WriteErrorLog(
+            $"移动热点已启动，但配置 WinNAT 转发失败：{result.Message}",
+            category: "Hotspot",
+            eventId: "hotspot.nat.failed",
+            details: $"Profile={profile.Name}; AdapterId={profile.AdapterId}");
+        RequestAlert?.Invoke("网络转发未完成", result.Message);
+    }
+
+    private async Task RemoveConfiguredNatAsync()
+    {
+        var result = await _tetheringService.RemoveNatAsync();
+        if (result.Success)
+        {
+            WriteInformationLog(
+                result.Message,
+                category: "Hotspot",
+                eventId: "hotspot.nat.removed");
+            return;
+        }
+
+        WriteWarningLog(
+            $"清理 WinNAT 转发失败：{result.Message}",
+            category: "Hotspot",
+            eventId: "hotspot.nat.remove-failed");
+    }
+
+    private async Task<bool> ResetRunningHotspotForSourceSwitchAsync(TetheringConnectionProfile requestedProfile)
+    {
+        try
+        {
+            var currentStatus = await _tetheringService.GetStatusAsync(requestedProfile.AdapterId);
+            if (!currentStatus.State.Equals("On", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            WriteInformationLog(
+                "检测到移动热点已开启，正在先停止现有热点以切换共享源。",
+                category: "Hotspot",
+                eventId: "hotspot.source-switch.reset-begin",
+                details: $"RequestedProfile={requestedProfile.Name}; RequestedAdapterId={requestedProfile.AdapterId}; " +
+                         $"CurrentState={currentStatus.State}; CurrentSsid={currentStatus.Ssid}");
+
+            var stopResult = await _tetheringService.StopHotspotAsync(requestedProfile.AdapterId);
+            if (stopResult.Status is not null)
+            {
+                ApplyStatus(stopResult.Status, syncInputFields: false);
+            }
+
+            if (!stopResult.Success)
+            {
+                var message = $"无法停止现有移动热点，暂时不能把共享源切换到“{requestedProfile.Name}”：{stopResult.Message}";
+                SetResultState("无法切换共享源", message, InfoBarSeverity.Error);
+                WriteErrorLog(
+                    message,
+                    category: "Hotspot",
+                    eventId: "hotspot.source-switch.reset-failed",
+                    details: $"RequestedProfile={requestedProfile.Name}; RequestedAdapterId={requestedProfile.AdapterId}");
+                RequestAlert?.Invoke("无法切换共享源", message);
+                return false;
+            }
+
+            await WaitForHotspotToStopAsync(requestedProfile.AdapterId);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            WriteWarningLog(
+                $"切换共享源前检查现有热点状态失败，继续尝试启动所选连接：{ex.Message}",
+                category: "Hotspot",
+                eventId: "hotspot.source-switch.check-failed",
+                details: $"RequestedProfile={requestedProfile.Name}; RequestedAdapterId={requestedProfile.AdapterId}");
+            return true;
+        }
+    }
+
+    private async Task WaitForHotspotToStopAsync(string adapterId)
+    {
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(350));
+
+            try
+            {
+                var status = await _tetheringService.GetStatusAsync(adapterId);
+                ApplyStatus(status, syncInputFields: false);
+                if (!status.State.Equals("On", StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                WriteDebugLog(
+                    $"等待移动热点停止时读取状态失败：{ex.Message}",
+                    category: "Hotspot",
+                    eventId: "hotspot.source-switch.wait-status-failed",
+                    details: $"AdapterId={adapterId}; Attempt={attempt + 1}");
+                return;
+            }
+        }
     }
 
     private void ApplyStatus(TetheringStatus status, bool syncInputFields)
